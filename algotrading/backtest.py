@@ -20,7 +20,8 @@ def run_backtest(skill, candles, cfg, starting_balance, window=200):
     for i in range(1, n + 1):
         win = candles[max(0, i - window):i]
         process_tick(ledger, broker, [skill], win, cfg)
-    final_equity = ledger.equity_curve[-1][1] if ledger.equity_curve else starting_balance
+    curve = [(candles[k].time, eq) for k, (_, eq) in enumerate(ledger.equity_curve)]
+    final_equity = curve[-1][1] if curve else starting_balance
     ppy = metrics.periods_per_year(cfg.interval)
     return {
         "strategy": skill.name,
@@ -33,7 +34,7 @@ def run_backtest(skill, candles, cfg, starting_balance, window=200):
         "sharpe": metrics.sharpe(ledger.equity_curve, ppy),
         "avg_win": metrics.avg_win(ledger.trades),
         "avg_loss": metrics.avg_loss(ledger.trades),
-        "equity_curve": ledger.equity_curve,
+        "equity_curve": curve,
     }
 
 
@@ -51,7 +52,7 @@ def _format(results):
 
 
 def _write_csv(path, results):
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write("time,strategy,equity\n")
         for r in results:
             for ts, eq in r["equity_curve"]:
