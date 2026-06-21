@@ -1374,12 +1374,7 @@ def build_skills(names):
     return [_SKILL_FACTORY[n]() for n in names if n in _SKILL_FACTORY]
 
 
-def _open(db, broker, skill, candle, cfg):
-    balance = db.get_balance(skill.name)
-    return balance
-
-
-def _close_position(db, broker, skill, position, exit_price, candle, reason):
+def _close_position(db, broker, skill, position, exit_price, candle):
     exit_fill = broker.fill_price(exit_price, position.side, is_entry=False)
     pnl = broker.realized_pnl(position, exit_fill)
     fee = broker.entry_fee(position.size, exit_fill)
@@ -1412,12 +1407,11 @@ def process_tick(db, broker, skills, candles, cfg):
         # 1. risk checks on existing position
         if position is not None:
             if broker.hit_liquidation(position, candle):
-                _close_position(db, broker, skill, position, broker.liquidation_price(position),
-                                candle, "liquidation")
+                _close_position(db, broker, skill, position,
+                                broker.liquidation_price(position), candle)
                 position = None
             elif broker.hit_stop(position, candle):
-                _close_position(db, broker, skill, position, position.stop_price,
-                                candle, "stop")
+                _close_position(db, broker, skill, position, position.stop_price, candle)
                 position = None
         # 2. strategy decision
         signal = skill.on_candle(candles, position)
@@ -1427,7 +1421,7 @@ def process_tick(db, broker, skills, candles, cfg):
         if signal.action in ("LONG", "SHORT") and position is None:
             _open_position(db, broker, skill, signal.action, candle, cfg)
         elif signal.action == "CLOSE" and position is not None:
-            _close_position(db, broker, skill, position, candle.close, candle, "signal")
+            _close_position(db, broker, skill, position, candle.close, candle)
         # 4. equity snapshot
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
