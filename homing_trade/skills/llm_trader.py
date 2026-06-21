@@ -9,6 +9,7 @@ consults Claude only every `interval_min` minutes and HOLDs in between. With no 
 no `anthropic` package, or any error, it degrades to HOLD — it never crashes the bot.
 """
 import json
+import time
 from homing_trade.skills.base import Strategy
 from homing_trade.skills.indicators import ema, rsi
 from homing_trade.models import Candle, Signal
@@ -79,7 +80,7 @@ class LlmTrader(Strategy):
 
     def __init__(self, model="claude-opus-4-8", interval_min=15, client=None,
                  max_tokens=500, backend="api", cli_timeout=120,
-                 pair="B-BTC_USDT", provider=None, name=None):
+                 pair="B-BTC_USDT", provider=None, name=None, clock=None):
         self.name = name or "llm_trader"   # per-instance so multiple brains get separate wallets
         self.model = model
         self.interval_min = interval_min
@@ -89,7 +90,8 @@ class LlmTrader(Strategy):
         self.cli_timeout = cli_timeout
         self.pair = pair
         self._provider = provider       # callable(interval)->[Candle]; defaults to the live feed
-        self._last_decision_time = None
+        self._clock = clock or time.time  # WALL-CLOCK cadence — decoupled from the candle loop
+        self._last_decision_ts = None
 
     def _get_client(self):
         if self._client is not None:
@@ -142,17 +144,16 @@ class LlmTrader(Strategy):
         }
 
     def on_candle(self, candles, position):
-        cur = candles[-1]
-        # Cadence: consult Claude only every interval_min minutes; HOLD in between (cost control).
-        if self._last_decision_time is not None:
-            elapsed = (cur.time - self._last_decision_time) / 60000
-            if elapsed < self.interval_min:
-                return Signal("HOLD", reason=f"waiting {elapsed:.0f}/{self.interval_min}m to next LLM check")
+        # Cadence: consult Claude only every interval_min minutes of WALL-CLOCK time, so the
+        # brain can poll faster (or slower) than the engine's candle interval. HOLD in between.
+        now = self._clock()
+        if self._last_decision_ts is not None and (now - self._last_decision_ts) < self.interval_min * 60:
+            return Signal("HOLD", reason=f"waiting (next LLM check within {self.interval_min}m)")
         ctx = self._build_context(candles, position)
         user = "Decide the trade. Charts:\n" + json.dumps(ctx)
         try:
             data = self._decide_via_cli(user) if self.backend == "cli" else self._decide_via_api(user)
-            self._last_decision_time = cur.time
+            self._last_decision_ts = now
             action = str(data["action"]).upper()
             # guard the mapping so the engine never gets an impossible action
             if action == "LONG" and position is not None:

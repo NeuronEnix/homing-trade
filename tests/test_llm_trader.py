@@ -44,20 +44,21 @@ def test_long_when_flat():
     sig = t.on_candle(candles(), None)
     assert sig.action == "LONG" and sig.confidence == 0.8
     assert c.messages.calls == 1
-    assert t._last_decision_time is not None
+    assert t._last_decision_ts is not None
 
 
 def test_cadence_holds_without_new_call():
     c = _Client({"action": "long", "confidence": 0.8, "reason": "x"})
-    t = LlmTrader(client=c, interval_min=15, provider=PROV)
-    cs = candles()
-    t.on_candle(cs, None)
+    clock = [1000.0]  # wall-clock seconds, controllable
+    t = LlmTrader(client=c, interval_min=15, provider=PROV, clock=lambda: clock[0])
+    t.on_candle(candles(), None)            # first consult
     calls = c.messages.calls
-    nxt = cs + [Candle(open=64000, high=64005, low=63995, close=64000, volume=1,
-                       time=cs[-1].time + 60000)]  # only +1 minute -> within 15m
-    sig = t.on_candle(nxt, None)
-    assert sig.action == "HOLD"
-    assert c.messages.calls == calls  # Claude not consulted again
+    clock[0] += 60                          # +60s, well within the 15-min gate
+    assert t.on_candle(candles(), None).action == "HOLD"
+    assert c.messages.calls == calls        # Claude not consulted again
+    clock[0] += 15 * 60                     # advance past 15 min -> consults again
+    t.on_candle(candles(), None)
+    assert c.messages.calls == calls + 1
 
 
 def test_no_client_holds():

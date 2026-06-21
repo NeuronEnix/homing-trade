@@ -122,8 +122,11 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
     sleeper = sleeper or time.sleep
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
-    # Mechanical skills + any enabled AI traders (each runs independently with its own wallet).
-    skills = build_skills(cfg.enabled_skills, cfg) + build_ai_traders(cfg)
+    # Mechanical skills act once per new candle; AI traders run every cycle on their own
+    # wall-clock cadence (so they can poll faster than the candle interval). Both independent.
+    mech_skills = build_skills(cfg.enabled_skills, cfg)
+    ai_traders = build_ai_traders(cfg)
+    skills = mech_skills + ai_traders
     for s in skills:
         db.ensure_strategy(s.name, cfg.starting_balance)
     last_alert_id = 0
@@ -146,20 +149,24 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
             if candles:
                 db.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
                 newest = str(candles[-1].time)
-                if db.get_state("last_candle_time") != newest:
-                    process_tick(db, broker, skills, candles, cfg, guard)
+                # Mechanical skills: only on a genuinely new candle (candle-driven).
+                if mech_skills and db.get_state("last_candle_time") != newest:
+                    process_tick(db, broker, mech_skills, candles, cfg, guard)
                     db.set_state("last_candle_time", newest)
+                # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
+                if ai_traders:
+                    process_tick(db, broker, ai_traders, candles, cfg, guard)
+                if notifier is not None:
+                    for t in db.trades_after(last_alert_id):
+                        notifier.notify("trade", f"{t['strategy']} {t['action']}",
+                                        f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}")
+                        last_alert_id = t["id"]
+                # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
+                if guard is not None and guard.halted_reason:
                     if notifier is not None:
-                        for t in db.trades_after(last_alert_id):
-                            notifier.notify("trade", f"{t['strategy']} {t['action']}",
-                                            f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}")
-                            last_alert_id = t["id"]
-                    # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
-                    if guard is not None and guard.halted_reason:
-                        if notifier is not None:
-                            notifier.notify("error", "risk halt", guard.halted_reason)
-                        print(f"[risk] halting: {guard.halted_reason}")
-                        break
+                        notifier.notify("error", "risk halt", guard.halted_reason)
+                    print(f"[risk] halting: {guard.halted_reason}")
+                    break
             ticks += 1
             if max_ticks is None or ticks < max_ticks:
                 sleeper(cfg.poll_seconds)
