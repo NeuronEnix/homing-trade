@@ -8,7 +8,7 @@ class Config:
     pair_candles: str = "B-BTC_USDT"   # futures perpetual instrument
     ticker_market: str = "BTCINR"
     usdt_inr_rate: float = 88.0        # USDT->INR (for absolute INR figures / live)
-    interval: str = "1m"
+    interval: str = "15m"              # backtests show 1m/5m overtrade & bleed fees; 15m is the sweet spot
     poll_seconds: int = 60
     starting_balance: float = 5000.0
     leverage: float = 15.0             # default 15x (futures); bounded by min/max below
