@@ -206,5 +206,11 @@ class Database:
             (strategy, limit)).fetchall()
         return [float(r["pnl"]) for r in rows]
 
+    def trades_after(self, last_id):
+        rows = self.conn.execute(
+            "SELECT id, strategy, side, action, price, size, pnl FROM trades WHERE id>? ORDER BY id ASC",
+            (last_id,)).fetchall()
+        return [dict(r) for r in rows]
+
     def close(self) -> None:
         self.conn.close()

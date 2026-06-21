@@ -101,13 +101,17 @@ def process_tick(db, broker, skills, candles, cfg):
         db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
 
 
-def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None):
+def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None):
     sleeper = sleeper or time.sleep
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
     skills = build_skills(cfg.enabled_skills, cfg)
     for s in skills:
         db.ensure_strategy(s.name, cfg.starting_balance)
+    last_alert_id = 0
+    if notifier is not None:
+        _row = db.conn.execute("SELECT MAX(id) AS m FROM trades").fetchone()
+        last_alert_id = _row["m"] or 0
     ticks = 0
     try:
         while max_ticks is None or ticks < max_ticks:
@@ -122,6 +126,11 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None):
                 if db.get_state("last_candle_time") != newest:
                     process_tick(db, broker, skills, candles, cfg)
                     db.set_state("last_candle_time", newest)
+                    if notifier is not None:
+                        for t in db.trades_after(last_alert_id):
+                            notifier.notify("trade", f"{t['strategy']} {t['action']}",
+                                            f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}")
+                            last_alert_id = t["id"]
             ticks += 1
             if max_ticks is None or ticks < max_ticks:
                 sleeper(cfg.poll_seconds)
