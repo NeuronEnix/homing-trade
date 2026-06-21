@@ -13,10 +13,10 @@ from homing_trade.skills.rsi_revert import RsiRevert
 from homing_trade.skills.grid import Grid
 from homing_trade.skills.rl_qlearn import RLQLearn
 from homing_trade.skills.committee import Committee, build_agents
-from homing_trade.skills.llm_trader import LlmTrader
 from homing_trade.skills.macd import MacdCross
 from homing_trade.skills.bollinger import BollingerRevert
 from homing_trade.skills.donchian import DonchianBreakout
+from homing_trade.ai_traders import build_ai_traders
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
@@ -27,7 +27,6 @@ _SKILL_FACTORY = {
     "donchian": DonchianBreakout,
     "rl_qlearn": RLQLearn,
     "committee": Committee,
-    "llm_trader": LlmTrader,
 }
 
 
@@ -44,11 +43,6 @@ def build_skills(names, cfg=None):
         elif cfg is not None and n == "committee":
             skills.append(Committee(agents=build_agents(cfg.agent_mode, cfg),
                                     threshold=cfg.committee_threshold))
-        elif cfg is not None and n == "llm_trader":
-            skills.append(LlmTrader(model=cfg.llm_model,
-                                    interval_min=getattr(cfg, "llm_interval_min", 15),
-                                    backend=getattr(cfg, "llm_backend", "cli"),
-                                    pair=cfg.pair_candles))
         else:
             skills.append(_SKILL_FACTORY[n]())
     return skills
@@ -128,7 +122,8 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
     sleeper = sleeper or time.sleep
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
-    skills = build_skills(cfg.enabled_skills, cfg)
+    # Mechanical skills + any enabled AI traders (each runs independently with its own wallet).
+    skills = build_skills(cfg.enabled_skills, cfg) + build_ai_traders(cfg)
     for s in skills:
         db.ensure_strategy(s.name, cfg.starting_balance)
     last_alert_id = 0

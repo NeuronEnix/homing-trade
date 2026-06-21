@@ -9,7 +9,7 @@ switch, and an opt-in (user-armed) live path.
 > 💸 **Paper-first. No real money. No API keys. No live orders** unless *you* deliberately
 > arm the live adapter with your own keys. This is a learning-and-research tool first.
 
-## Status — all four phases complete (161 tests)
+## Status — all four phases complete (180 tests)
 
 | Phase | What it adds |
 |-------|--------------|
@@ -38,9 +38,8 @@ Leverage and daily limits live in `homing_trade/risk.py` (separate from executio
 driven from `.env` — no code edits:
 
 ```bash
-HT_LEVERAGE=15            # leverage, clamped into [min, max]
 HT_LEVERAGE_MIN=1
-HT_LEVERAGE_MAX=15
+HT_LEVERAGE_MAX=15        # the bot trades at the top of the band (no single leverage knob)
 HT_MAX_TRADE_PER_DAY=0    # cap on INR notional opened per day (0 = no cap)
 HT_MAX_DAILY_LOSS=0       # KILL SWITCH — halt trading once the day's loss hits this (₹)
 HT_TRADING_ENABLED=true   # set false to STOP trading immediately
@@ -106,23 +105,30 @@ error is swallowed. Remove `HT_ALERT_MODE` to go back to terminal output (defaul
 > Telegram is also supported (`HT_ALERT_MODE=telegram` with `TELEGRAM_BOT_TOKEN` +
 > `TELEGRAM_CHAT_ID`) if you prefer it.
 
-## LLM trader — Claude decides entries (optional)
+## AI traders — Claude decides entries (optional)
 
 `homing_trade/skills/llm_trader.py` lets **Claude read the 1-minute + 15-minute charts and
 decide *when* to trade** (LONG/SHORT/CLOSE/HOLD) — direction and timing only; size, leverage,
-and the daily risk limits stay with the engine. It consults Claude every ~15 min (cost
-control) and degrades to HOLD on any error.
+and the daily risk limits stay with the engine. Degrades to HOLD on any error.
 
-Two backends — pick in `.env`:
-- **`cli` (default):** shells out to your local `claude` CLI. **No API key** — rides your
-  Claude Code subscription. Heavier/slower per call (drags in Claude Code's system context).
-- **`api`:** Anthropic SDK. Needs `ANTHROPIC_API_KEY`; leaner/cheaper/faster per call.
+There are **two independent brains** (`homing_trade/ai_traders.py`), each toggled and paced
+on its own. Enable either, both, or neither — **if both are on, they run side by side with
+separate wallets**, so you can compare them on the leaderboard:
+
+| Brain | Strategy name | Backend | Needs |
+|---|---|---|---|
+| **Claude Code** | `llm_claude_code` | local `claude` CLI | nothing — rides your Claude Code subscription |
+| **Anthropic** | `llm_anthropic` | Anthropic SDK | `ANTHROPIC_API_KEY` (cheaper/faster per call) |
 
 ```bash
-HT_SKILLS=ma_trend,rsi_revert,grid,macd,bollinger,donchian,llm_trader   # add llm_trader
-HT_LLM_BACKEND=cli              # cli (no key) | api
-HT_LLM_MODEL=claude-opus-4-8    # or claude-haiku-4-5 to cut cost
-# ANTHROPIC_API_KEY=sk-ant-...  # only for HT_LLM_BACKEND=api
+# Brain 1 — Claude Code CLI (no API key)
+AI_CLAUDE_CODE_IS_ENABLED=true
+AI_CLAUDE_CODE_POLL_IN_MIN=60
+# Brain 2 — Anthropic API
+AI_ANTHROPIC_IS_ENABLED=false
+AI_ANTHROPIC_POLL_IN_MIN=15
+ANTHROPIC_API_KEY=sk-ant-...
+HT_LLM_MODEL=claude-opus-4-8    # model both brains use (claude-haiku-4-5 to cut cost)
 ```
 ⚠️ This is an **experiment, not a known edge** — there's no evidence an LLM reading short
 timeframes beats the market. Paper-test it hard before trusting it.
@@ -130,5 +136,5 @@ timeframes beats the market. Paper-test it hard before trusting it.
 ## Tests
 
 ```bash
-python -m pytest -q     # 175 tests
+python -m pytest -q     # 180 tests
 ```

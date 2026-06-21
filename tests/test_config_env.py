@@ -33,6 +33,16 @@ def test_from_env_overrides(monkeypatch):
     assert c.trading_enabled is False
 
 
+def test_from_env_ai_flags(monkeypatch):
+    monkeypatch.setenv("AI_CLAUDE_CODE_IS_ENABLED", "true")
+    monkeypatch.setenv("AI_CLAUDE_CODE_POLL_IN_MIN", "45")
+    monkeypatch.setenv("AI_ANTHROPIC_IS_ENABLED", "false")
+    monkeypatch.setenv("AI_ANTHROPIC_POLL_IN_MIN", "10")
+    c = from_env(Config(), dotenv_path=MISSING)
+    assert c.ai_claude_code_enabled is True and c.ai_claude_code_poll_min == 45
+    assert c.ai_anthropic_enabled is False and c.ai_anthropic_poll_min == 10
+
+
 def test_from_env_keeps_defaults_when_unset(monkeypatch):
     for k in ("HT_LEVERAGE_MIN", "HT_LEVERAGE_MAX", "HT_MAX_TRADE_PER_DAY",
               "HT_MAX_DAILY_LOSS", "HT_TRADING_ENABLED", "HT_ALERT_MODE"):

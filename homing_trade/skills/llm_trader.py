@@ -79,7 +79,8 @@ class LlmTrader(Strategy):
 
     def __init__(self, model="claude-opus-4-8", interval_min=15, client=None,
                  max_tokens=500, backend="api", cli_timeout=120,
-                 pair="B-BTC_USDT", provider=None):
+                 pair="B-BTC_USDT", provider=None, name=None):
+        self.name = name or "llm_trader"   # per-instance so multiple brains get separate wallets
         self.model = model
         self.interval_min = interval_min
         self._client = client

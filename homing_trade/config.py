@@ -27,8 +27,12 @@ class Config:
     )
     agent_mode: str = "heuristic"           # "heuristic" | "llm"
     llm_model: str = "claude-opus-4-8"
-    llm_interval_min: int = 15              # LlmTrader consults Claude every N minutes
-    llm_backend: str = "cli"                # "cli" (claude headless, no API key) | "api" (anthropic SDK)
+    # AI traders — two INDEPENDENT Claude brains, each toggled + paced on its own.
+    # If both are enabled they run side by side (separate wallets) so you can compare them.
+    ai_claude_code_enabled: bool = False    # backend: local `claude` CLI (uses Claude Code, no API key)
+    ai_claude_code_poll_min: int = 60       # how often it consults Claude (minutes)
+    ai_anthropic_enabled: bool = False      # backend: Anthropic API (needs ANTHROPIC_API_KEY)
+    ai_anthropic_poll_min: int = 15
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -87,6 +91,10 @@ def from_env(base=None, *, dotenv_path=".env"):
         v = os.environ.get(name)
         return v if v not in (None, "") else cur
 
+    def _i(name, cur):
+        v = os.environ.get(name)
+        return int(float(v)) if v not in (None, "") else cur
+
     def _list(name, cur):
         v = os.environ.get(name)
         if v in (None, ""):
@@ -103,7 +111,10 @@ def from_env(base=None, *, dotenv_path=".env"):
         usdt_inr_rate=_f("HT_USDT_INR", cfg.usdt_inr_rate),
         alert_mode=_s("HT_ALERT_MODE", cfg.alert_mode),
         llm_model=_s("HT_LLM_MODEL", cfg.llm_model),
-        llm_backend=_s("HT_LLM_BACKEND", cfg.llm_backend),
+        ai_claude_code_enabled=_b("AI_CLAUDE_CODE_IS_ENABLED", cfg.ai_claude_code_enabled),
+        ai_claude_code_poll_min=_i("AI_CLAUDE_CODE_POLL_IN_MIN", cfg.ai_claude_code_poll_min),
+        ai_anthropic_enabled=_b("AI_ANTHROPIC_IS_ENABLED", cfg.ai_anthropic_enabled),
+        ai_anthropic_poll_min=_i("AI_ANTHROPIC_POLL_IN_MIN", cfg.ai_anthropic_poll_min),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
