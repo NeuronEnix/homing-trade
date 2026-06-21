@@ -19,14 +19,14 @@
 - All backtests are in-memory and must NOT write to the strategy/wallet/trade/equity tables.
 - Commit after each task; run tests before each commit. Every commit message ends with the trailer:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
-- Run tests via the project venv: `cd /Users/krb/adoc2/rnd/algo-trading && ./.venv/bin/python -m pytest <path> -v`
+- Run tests via the project venv: `cd /Users/krb/adoc2/rnd/homing-trade && ./.venv/bin/python -m pytest <path> -v`
 
 ---
 
 ### Task 1: Candle storage in SQLite
 
 **Files:**
-- Modify: `algotrading/db.py` (add `candles` table to `SCHEMA`; import `Candle`; add 4 methods)
+- Modify: `homing_trade/db.py` (add `candles` table to `SCHEMA`; import `Candle`; add 4 methods)
 - Test: `tests/test_db_candles.py`
 
 **Interfaces:**
@@ -41,8 +41,8 @@
 
 ```python
 # tests/test_db_candles.py
-from algotrading.db import Database
-from algotrading.models import Candle
+from homing_trade.db import Database
+from homing_trade.models import Candle
 
 
 def mk(time, close, src_close=None):
@@ -96,10 +96,10 @@ Expected: FAIL (`AttributeError: 'Database' object has no attribute 'save_candle
 
 - [ ] **Step 3: Implement**
 
-In `algotrading/db.py`, change the import line:
+In `homing_trade/db.py`, change the import line:
 
 ```python
-from algotrading.models import Candle, Position
+from homing_trade.models import Candle, Position
 ```
 
 Append this table to the `SCHEMA` string (before the closing `"""`):
@@ -175,7 +175,7 @@ Expected: PASS (4 passed)
 Run: `./.venv/bin/python -m pytest -q` → all pass.
 
 ```bash
-git add algotrading/db.py tests/test_db_candles.py
+git add homing_trade/db.py tests/test_db_candles.py
 git commit -m "feat: persistent candle storage in SQLite (history + live, one table)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -186,7 +186,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 2: MemoryLedger (in-memory Database stand-in)
 
 **Files:**
-- Create: `algotrading/ledger.py`
+- Create: `homing_trade/ledger.py`
 - Test: `tests/test_ledger.py`
 
 **Interfaces:**
@@ -197,8 +197,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_ledger.py
-from algotrading.ledger import MemoryLedger
-from algotrading.models import Position
+from homing_trade.ledger import MemoryLedger
+from homing_trade.models import Position
 
 
 def test_balance_get_set():
@@ -242,13 +242,13 @@ def test_ensure_strategy_idempotent():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `./.venv/bin/python -m pytest tests/test_ledger.py -v`
-Expected: FAIL (`ModuleNotFoundError: No module named 'algotrading.ledger'`)
+Expected: FAIL (`ModuleNotFoundError: No module named 'homing_trade.ledger'`)
 
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/ledger.py
-from algotrading.models import Position
+# homing_trade/ledger.py
+from homing_trade.models import Position
 
 
 class MemoryLedger:
@@ -309,7 +309,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/ledger.py tests/test_ledger.py
+git add homing_trade/ledger.py tests/test_ledger.py
 git commit -m "feat: MemoryLedger — in-memory Database stand-in for backtesting
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -320,7 +320,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 3: Metrics
 
 **Files:**
-- Create: `algotrading/metrics.py`
+- Create: `homing_trade/metrics.py`
 - Test: `tests/test_metrics.py`
 
 **Interfaces:**
@@ -335,7 +335,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```python
 # tests/test_metrics.py
 import math
-from algotrading import metrics
+from homing_trade import metrics
 
 
 def closes(*pnls):
@@ -388,12 +388,12 @@ def test_sharpe_too_few_points():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `./.venv/bin/python -m pytest tests/test_metrics.py -v`
-Expected: FAIL (`ModuleNotFoundError: No module named 'algotrading.metrics'`)
+Expected: FAIL (`ModuleNotFoundError: No module named 'homing_trade.metrics'`)
 
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/metrics.py
+# homing_trade/metrics.py
 import math
 
 CANDLE_INTERVAL_MS = {
@@ -485,7 +485,7 @@ Expected: PASS (9 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/metrics.py tests/test_metrics.py
+git add homing_trade/metrics.py tests/test_metrics.py
 git commit -m "feat: backtest metrics (return, Sharpe, drawdown, profit factor, win rate)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -496,7 +496,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 4: History backfill (gap-aware, cached)
 
 **Files:**
-- Create: `algotrading/history.py`
+- Create: `homing_trade/history.py`
 - Test: `tests/test_history.py`
 
 **Interfaces:**
@@ -508,8 +508,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_history.py
-from algotrading.db import Database
-from algotrading.history import ensure_history
+from homing_trade.db import Database
+from homing_trade.history import ensure_history
 
 STEP = 3_600_000  # 1h in ms
 NOW = 1000 * STEP  # interval-aligned "now"
@@ -553,7 +553,7 @@ def test_second_call_makes_no_fetch(tmp_path):
 
 def test_gap_fill_only_fetches_missing(tmp_path):
     d = Database(str(tmp_path / "h.db"))
-    from algotrading.models import Candle
+    from homing_trade.models import Candle
     # Pre-store a middle band [NOW-20h .. NOW-10h]
     mid = [Candle(open=100, high=101, low=99, close=100, volume=1, time=NOW - k * STEP)
            for k in range(10, 21)]
@@ -577,14 +577,14 @@ def test_fetch_error_returns_stored_without_raising(tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `./.venv/bin/python -m pytest tests/test_history.py -v`
-Expected: FAIL (`ModuleNotFoundError: No module named 'algotrading.history'`)
+Expected: FAIL (`ModuleNotFoundError: No module named 'homing_trade.history'`)
 
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/history.py
-from algotrading.feed import parse_candles, CANDLES_URL, _http_fetcher
-from algotrading.metrics import CANDLE_INTERVAL_MS
+# homing_trade/history.py
+from homing_trade.feed import parse_candles, CANDLES_URL, _http_fetcher
+from homing_trade.metrics import CANDLE_INTERVAL_MS
 
 _DAY_MS = 86_400_000
 _MAX_LIMIT = 1000
@@ -641,7 +641,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/history.py tests/test_history.py
+git add homing_trade/history.py tests/test_history.py
 git commit -m "feat: gap-aware history backfill with SQLite caching
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -652,7 +652,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 5: Capture live candles in the engine
 
 **Files:**
-- Modify: `algotrading/engine.py` (in `run()`, persist fetched candles with `source="live"`)
+- Modify: `homing_trade/engine.py` (in `run()`, persist fetched candles with `source="live"`)
 - Test: `tests/test_engine.py` (add one test)
 
 **Interfaces:**
@@ -686,7 +686,7 @@ Expected: FAIL (count is 0 — candles not yet persisted)
 
 - [ ] **Step 3: Implement**
 
-In `algotrading/engine.py`, inside `run()`, locate the block:
+In `homing_trade/engine.py`, inside `run()`, locate the block:
 
 ```python
             if candles:
@@ -711,7 +711,7 @@ Expected: PASS (all engine tests, including the new one)
 Run: `./.venv/bin/python -m pytest -q` → all pass.
 
 ```bash
-git add algotrading/engine.py tests/test_engine.py
+git add homing_trade/engine.py tests/test_engine.py
 git commit -m "feat: persist live candles to SQLite each engine tick
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -722,7 +722,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 6: Backtester + CLI
 
 **Files:**
-- Create: `algotrading/backtest.py`
+- Create: `homing_trade/backtest.py`
 - Test: `tests/test_backtest.py`
 
 **Interfaces:**
@@ -738,10 +738,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_backtest.py
-from algotrading.backtest import run_backtest
-from algotrading.config import CONFIG
-from algotrading.skills.ma_trend import MaTrend
-from algotrading.models import Candle
+from homing_trade.backtest import run_backtest
+from homing_trade.config import CONFIG
+from homing_trade.skills.ma_trend import MaTrend
+from homing_trade.models import Candle
 
 
 def candles_from(prices):
@@ -780,22 +780,22 @@ def test_run_backtest_flat_series_no_trades():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `./.venv/bin/python -m pytest tests/test_backtest.py -v`
-Expected: FAIL (`ModuleNotFoundError: No module named 'algotrading.backtest'`)
+Expected: FAIL (`ModuleNotFoundError: No module named 'homing_trade.backtest'`)
 
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/backtest.py
+# homing_trade/backtest.py
 import argparse
 import time
 from dataclasses import replace
-from algotrading.config import CONFIG
-from algotrading.db import Database
-from algotrading.broker import Broker
-from algotrading.engine import build_skills, process_tick
-from algotrading.ledger import MemoryLedger
-from algotrading.history import ensure_history
-from algotrading import metrics
+from homing_trade.config import CONFIG
+from homing_trade.db import Database
+from homing_trade.broker import Broker
+from homing_trade.engine import build_skills, process_tick
+from homing_trade.ledger import MemoryLedger
+from homing_trade.history import ensure_history
+from homing_trade import metrics
 
 _DAY_MS = 86_400_000
 
@@ -895,12 +895,12 @@ Run: `./.venv/bin/python -m pytest -q` → all pass.
 LIVE smoke test (one real, read-only CoinDCX backfill — allowed; small range for speed):
 
 ```bash
-./.venv/bin/python -m algotrading.backtest --days 2 --interval 1h
+./.venv/bin/python -m homing_trade.backtest --days 2 --interval 1h
 ```
-Expected: backfills ~48 candles, prints a leaderboard table for the 3 strategies + the overfit reminder. Run it a second time and confirm it is faster / makes no new fetch (cached). Then confirm no db/data is staged: `git status --short` must show only `algotrading/backtest.py` and `tests/test_backtest.py`.
+Expected: backfills ~48 candles, prints a leaderboard table for the 3 strategies + the overfit reminder. Run it a second time and confirm it is faster / makes no new fetch (cached). Then confirm no db/data is staged: `git status --short` must show only `homing_trade/backtest.py` and `tests/test_backtest.py`.
 
 ```bash
-git add algotrading/backtest.py tests/test_backtest.py
+git add homing_trade/backtest.py tests/test_backtest.py
 git commit -m "feat: backtester + CLI over stored candles, reusing live execution path
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"

@@ -13,7 +13,7 @@
 - Python 3.12. All new code additive and default-off; existing tests stay green.
 - **No real orders by default:** `LiveBroker` defaults `dry_run=True` and makes NO network call in dry-run. No API keys in code/git (read from env). The paper engine never routes to `LiveBroker`.
 - Currency INR; `data/` gitignored.
-- Run tests via `cd /Users/krb/adoc2/rnd/algo-trading && ./.venv/bin/python -m pytest <path> -v`.
+- Run tests via `cd /Users/krb/adoc2/rnd/homing-trade && ./.venv/bin/python -m pytest <path> -v`.
 - Commit after each task; every commit message ends with:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 
@@ -21,14 +21,14 @@
 
 ### Task 1: Config additions
 
-**Files:** Modify `algotrading/config.py`; Test `tests/test_config_phase4.py`
+**Files:** Modify `homing_trade/config.py`; Test `tests/test_config_phase4.py`
 
 **Interfaces:** new `Config` fields: `alert_mode="console"`, `alert_log_path="data/alerts.log"`, `webhook_url=""`, `live_enabled=False`, `live_dry_run=True`, `coindcx_key_env="COINDCX_API_KEY"`, `coindcx_secret_env="COINDCX_API_SECRET"`, `daemon_status_path="data/daemon_status.json"`, `daemon_backoff_seconds=5`.
 
 - [ ] **Step 1: failing test**
 ```python
 # tests/test_config_phase4.py
-from algotrading.config import CONFIG
+from homing_trade.config import CONFIG
 
 
 def test_phase4_defaults():
@@ -58,7 +58,7 @@ def test_phase4_defaults():
 - [ ] **Step 4: run → PASS**; then full suite → all pass.
 - [ ] **Step 5: commit**
 ```bash
-git add algotrading/config.py tests/test_config_phase4.py
+git add homing_trade/config.py tests/test_config_phase4.py
 git commit -m "feat: Phase 4 config fields (alerts, daemon, live-trading guards)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -68,16 +68,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 2: Notifiers
 
-**Files:** Create `algotrading/notify.py`; Test `tests/test_notify.py`
+**Files:** Create `homing_trade/notify.py`; Test `tests/test_notify.py`
 
 **Interfaces:** `Notifier` ABC (`notify(level,title,message)`); `NullNotifier`, `ConsoleNotifier`, `FileNotifier(path)`, `WebhookNotifier(url, poster=None)`; `build_notifier(cfg) -> Notifier`.
 
 - [ ] **Step 1: failing test**
 ```python
 # tests/test_notify.py
-from algotrading.notify import (Notifier, NullNotifier, ConsoleNotifier, FileNotifier,
+from homing_trade.notify import (Notifier, NullNotifier, ConsoleNotifier, FileNotifier,
                                 WebhookNotifier, build_notifier)
-from algotrading.config import Config
+from homing_trade.config import Config
 
 
 def test_null_notifier_no_op():
@@ -122,7 +122,7 @@ def test_build_notifier_modes(tmp_path):
 - [ ] **Step 2: run → FAIL** (ModuleNotFoundError).
 - [ ] **Step 3: implement**
 ```python
-# algotrading/notify.py
+# homing_trade/notify.py
 import os
 from abc import ABC, abstractmethod
 
@@ -185,7 +185,7 @@ def build_notifier(cfg):
 - [ ] **Step 4: run → PASS (6)**; full suite → all pass.
 - [ ] **Step 5: commit**
 ```bash
-git add algotrading/notify.py tests/test_notify.py
+git add homing_trade/notify.py tests/test_notify.py
 git commit -m "feat: pluggable notifiers (console/file/webhook/null)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -195,19 +195,19 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 3: trades_after + engine run() notifier hook
 
-**Files:** Modify `algotrading/db.py`, `algotrading/engine.py`; Test `tests/test_engine_notify.py`
+**Files:** Modify `homing_trade/db.py`, `homing_trade/engine.py`; Test `tests/test_engine_notify.py`
 
 **Interfaces:** `Database.trades_after(last_id) -> list[dict]` (id > last_id, oldest-first). `engine.run(..., notifier=None)` — when given, emits one `notify("trade", ...)` per new trade after each tick; default None = unchanged behaviour.
 
 - [ ] **Step 1: failing test**
 ```python
 # tests/test_engine_notify.py
-import algotrading.engine as eng
-from algotrading.engine import run
-from algotrading.db import Database
-from algotrading.config import Config
-from algotrading.skills.base import Strategy
-from algotrading.models import Candle, Signal
+import homing_trade.engine as eng
+from homing_trade.engine import run
+from homing_trade.db import Database
+from homing_trade.config import Config
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Candle, Signal
 
 
 class _RecNotifier:
@@ -252,7 +252,7 @@ def test_run_emits_trade_alerts(tmp_path, monkeypatch):
 - [ ] **Step 2: run → FAIL** (`AttributeError: trades_after` / no notifier param).
 - [ ] **Step 3: implement**
 
-Add to `algotrading/db.py` `Database`:
+Add to `homing_trade/db.py` `Database`:
 ```python
     def trades_after(self, last_id):
         rows = self.conn.execute(
@@ -261,7 +261,7 @@ Add to `algotrading/db.py` `Database`:
         return [dict(r) for r in rows]
 ```
 
-In `algotrading/engine.py`, change `run`'s signature to add `notifier=None`:
+In `homing_trade/engine.py`, change `run`'s signature to add `notifier=None`:
 ```python
 def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None):
 ```
@@ -285,7 +285,7 @@ Change nothing else in `run`/`process_tick`.
 - [ ] **Step 4: run → PASS**; full suite → all pass (notifier default None keeps prior tests green).
 - [ ] **Step 5: commit**
 ```bash
-git add algotrading/db.py algotrading/engine.py tests/test_engine_notify.py
+git add homing_trade/db.py homing_trade/engine.py tests/test_engine_notify.py
 git commit -m "feat: trades_after + engine run() per-trade alert hook (default off)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -295,7 +295,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 4: Daemon / supervisor
 
-**Files:** Create `algotrading/daemon.py`; Test `tests/test_daemon.py`
+**Files:** Create `homing_trade/daemon.py`; Test `tests/test_daemon.py`
 
 **Interfaces:** `run_daemon(cfg=CONFIG, *, notifier=None, status_path=None, run_engine=None, max_restarts=None, sleeper=None, now_fn=None) -> dict`.
 
@@ -303,8 +303,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```python
 # tests/test_daemon.py
 import json
-from algotrading.daemon import run_daemon
-from algotrading.config import Config
+from homing_trade.daemon import run_daemon
+from homing_trade.config import Config
 
 
 class _Rec:
@@ -352,14 +352,14 @@ def test_max_restarts_gives_up(tmp_path):
 - [ ] **Step 2: run → FAIL** (ModuleNotFoundError).
 - [ ] **Step 3: implement**
 ```python
-# algotrading/daemon.py
+# homing_trade/daemon.py
 import json
 import os
 import signal
 import time
-from algotrading.config import CONFIG
-from algotrading.notify import build_notifier
-from algotrading.engine import run as engine_run
+from homing_trade.config import CONFIG
+from homing_trade.notify import build_notifier
+from homing_trade.engine import run as engine_run
 
 
 def _write_status(path, state, restarts, last_error, ts):
@@ -417,7 +417,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: run → PASS (3)**; full suite → all pass.
 - [ ] **Step 5: commit**
 ```bash
-git add algotrading/daemon.py tests/test_daemon.py
+git add homing_trade/daemon.py tests/test_daemon.py
 git commit -m "feat: daemon supervisor (signals, heartbeat, restart, lifecycle alerts)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -427,7 +427,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 5: Guarded live-trading adapter
 
-**Files:** Create `algotrading/live_broker.py`; Test `tests/test_live_broker.py`
+**Files:** Create `homing_trade/live_broker.py`; Test `tests/test_live_broker.py`
 
 **Interfaces:** `sign(secret, body) -> hexdigest`; `build_order_payload(market, side, order_type, quantity, price, now_ms) -> dict`; `LiveBroker(api_key=None, api_secret=None, dry_run=True, base_url="https://api.coindcx.com", poster=None)` with `place_order(...)` and `from_signal(signal, market, quantity, price, now_ms, order_type="market_order")`.
 
@@ -438,8 +438,8 @@ import hashlib
 import hmac
 import json
 import pytest
-from algotrading.live_broker import sign, build_order_payload, LiveBroker
-from algotrading.models import Signal
+from homing_trade.live_broker import sign, build_order_payload, LiveBroker
+from homing_trade.models import Signal
 
 
 def test_sign_matches_hmac_sha256_of_compact_json():
@@ -496,7 +496,7 @@ def test_from_signal_maps_actions():
 - [ ] **Step 2: run → FAIL** (ModuleNotFoundError).
 - [ ] **Step 3: implement**
 ```python
-# algotrading/live_broker.py
+# homing_trade/live_broker.py
 import hashlib
 import hmac
 import json
@@ -565,7 +565,7 @@ class LiveBroker:
 - [ ] **Step 4: run → PASS (6)**; full suite → all pass.
 - [ ] **Step 5: commit**
 ```bash
-git add algotrading/live_broker.py tests/test_live_broker.py
+git add homing_trade/live_broker.py tests/test_live_broker.py
 git commit -m "feat: guarded CoinDCX live-order adapter (dry-run default, HMAC-signed)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"

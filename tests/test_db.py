@@ -1,5 +1,5 @@
-from algotrading.db import Database
-from algotrading.models import Position
+from homing_trade.db import Database
+from homing_trade.models import Position
 
 
 def make_db(tmp_path):

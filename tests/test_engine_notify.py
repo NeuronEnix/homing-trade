@@ -1,9 +1,9 @@
-import algotrading.engine as eng
-from algotrading.engine import run
-from algotrading.db import Database
-from algotrading.config import Config
-from algotrading.skills.base import Strategy
-from algotrading.models import Candle, Signal
+import homing_trade.engine as eng
+from homing_trade.engine import run
+from homing_trade.db import Database
+from homing_trade.config import Config
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Candle, Signal
 
 
 class _RecNotifier:

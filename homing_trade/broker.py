@@ -1,4 +1,4 @@
-from algotrading.models import Candle, Position
+from homing_trade.models import Candle, Position
 
 
 class Broker:

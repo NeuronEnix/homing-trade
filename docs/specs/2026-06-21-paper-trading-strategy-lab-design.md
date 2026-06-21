@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-21
 - **Status:** Approved (design); implementation pending
-- **Location:** `/Users/krb/adoc2/rnd/algo-trading/`
+- **Location:** `/Users/krb/adoc2/rnd/homing-trade/`
 - **Owner:** devansh@jum.bz
 
 ## 1. Goal & Philosophy
@@ -49,8 +49,8 @@ layer, live trading, web UI, alerts/notifications.
 Small, single-responsibility modules. Python 3.12, standard library + minimal deps.
 
 ```
-algo-trading/
-├── algotrading/
+homing-trade/
+├── homing_trade/
 │   ├── config.py        # all tunables in one place
 │   ├── feed.py          # CoinDCX candles/ticker -> clean OHLC
 │   ├── db.py            # SQLite schema + read/write helpers
@@ -183,11 +183,11 @@ loop:
     sleep(poll_interval)
 ```
 
-Runs as a foreground process (`python -m algotrading.engine`); restart-safe via `state`.
+Runs as a foreground process (`python -m homing_trade.engine`); restart-safe via `state`.
 
 ## 11. Reporting (`report.py`)
 
-`python -m algotrading.report` prints:
+`python -m homing_trade.report` prints:
 
 - **Leaderboard:** per strategy — equity, total return %, realized P&L, open P&L.
 - **Metrics:** win rate, # trades, avg win/loss, profit factor, max drawdown.

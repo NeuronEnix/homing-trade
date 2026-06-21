@@ -2,9 +2,9 @@ import json
 import os
 import signal
 import time
-from algotrading.config import CONFIG
-from algotrading.notify import build_notifier
-from algotrading.engine import run as engine_run
+from homing_trade.config import CONFIG
+from homing_trade.notify import build_notifier
+from homing_trade.engine import run as engine_run
 
 
 def _write_status(path, state, restarts, last_error, ts):

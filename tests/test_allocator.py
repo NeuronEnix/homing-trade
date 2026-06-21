@@ -1,7 +1,7 @@
 # tests/test_allocator.py
-from algotrading.allocator import compute_allocations, recent_performance
-from algotrading.db import Database
-from algotrading.ledger import MemoryLedger
+from homing_trade.allocator import compute_allocations, recent_performance
+from homing_trade.db import Database
+from homing_trade.ledger import MemoryLedger
 
 
 def test_compute_allocations_winner_gets_more_all_above_floor():

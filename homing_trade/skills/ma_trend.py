@@ -1,6 +1,6 @@
-from algotrading.skills.base import Strategy
-from algotrading.skills.indicators import ema
-from algotrading.models import Candle, Position, Signal
+from homing_trade.skills.base import Strategy
+from homing_trade.skills.indicators import ema
+from homing_trade.models import Candle, Position, Signal
 
 
 class MaTrend(Strategy):

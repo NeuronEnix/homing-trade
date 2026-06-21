@@ -1,5 +1,5 @@
-from algotrading.config import CONFIG
-from algotrading.db import Database
+from homing_trade.config import CONFIG
+from homing_trade.db import Database
 
 
 def compute_stats(db: Database, strategy: str, starting_balance: float) -> dict:

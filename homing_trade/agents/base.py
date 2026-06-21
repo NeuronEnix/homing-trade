@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from algotrading.models import Candle, Position
+from homing_trade.models import Candle, Position
 
 
 @dataclass

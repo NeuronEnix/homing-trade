@@ -1,14 +1,14 @@
-# algotrading/backtest.py
+# homing_trade/backtest.py
 import argparse
 import time
 from dataclasses import replace
-from algotrading.config import CONFIG
-from algotrading.db import Database
-from algotrading.broker import Broker
-from algotrading.engine import build_skills, process_tick
-from algotrading.ledger import MemoryLedger
-from algotrading.history import ensure_history
-from algotrading import metrics
+from homing_trade.config import CONFIG
+from homing_trade.db import Database
+from homing_trade.broker import Broker
+from homing_trade.engine import build_skills, process_tick
+from homing_trade.ledger import MemoryLedger
+from homing_trade.history import ensure_history
+from homing_trade import metrics
 
 _DAY_MS = 86_400_000
 

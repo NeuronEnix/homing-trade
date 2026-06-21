@@ -1,17 +1,17 @@
-# algotrading/engine.py
+# homing_trade/engine.py
 import os
 import time
-from algotrading.allocator import compute_allocations, recent_performance
-from algotrading.config import CONFIG
-from algotrading.db import Database
-from algotrading.broker import Broker
-from algotrading.feed import get_candles
-from algotrading.models import Position
-from algotrading.skills.ma_trend import MaTrend
-from algotrading.skills.rsi_revert import RsiRevert
-from algotrading.skills.grid import Grid
-from algotrading.skills.rl_qlearn import RLQLearn
-from algotrading.skills.committee import Committee, build_agents
+from homing_trade.allocator import compute_allocations, recent_performance
+from homing_trade.config import CONFIG
+from homing_trade.db import Database
+from homing_trade.broker import Broker
+from homing_trade.feed import get_candles
+from homing_trade.models import Position
+from homing_trade.skills.ma_trend import MaTrend
+from homing_trade.skills.rsi_revert import RsiRevert
+from homing_trade.skills.grid import Grid
+from homing_trade.skills.rl_qlearn import RLQLearn
+from homing_trade.skills.committee import Committee, build_agents
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,

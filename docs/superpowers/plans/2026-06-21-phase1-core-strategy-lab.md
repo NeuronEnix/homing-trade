@@ -4,7 +4,7 @@
 
 **Goal:** A paper-trading tournament where 3 rule-based strategies each trade an isolated virtual ₹5,000 wallet against live CoinDCX BTC/INR candles, with all activity persisted to SQLite and a CLI leaderboard.
 
-**Architecture:** Small single-responsibility modules under `algotrading/`. Pure-function indicators and strategies (easy TDD), a pure-ish `Broker` for paper execution math, a `db` layer wrapping stdlib `sqlite3`, and an `engine` loop that wires feed → skills → broker → db. Strategies implement one `Strategy.on_candle()` interface so ML/AI skills can be added later without rearchitecting.
+**Architecture:** Small single-responsibility modules under `homing_trade/`. Pure-function indicators and strategies (easy TDD), a pure-ish `Broker` for paper execution math, a `db` layer wrapping stdlib `sqlite3`, and an `engine` loop that wires feed → skills → broker → db. Strategies implement one `Strategy.on_candle()` interface so ML/AI skills can be added later without rearchitecting.
 
 **Tech Stack:** Python 3.12, `requests`, `pytest`. Indicators in plain Python (no pandas/numpy yet). SQLite via stdlib `sqlite3`.
 
@@ -26,10 +26,10 @@
 
 **Files:**
 - Create: `requirements.txt`
-- Create: `algotrading/__init__.py`
-- Create: `algotrading/config.py`
-- Create: `algotrading/models.py`
-- Create: `algotrading/skills/__init__.py`
+- Create: `homing_trade/__init__.py`
+- Create: `homing_trade/config.py`
+- Create: `homing_trade/models.py`
+- Create: `homing_trade/skills/__init__.py`
 - Create: `tests/__init__.py`
 - Test: `tests/test_models_config.py`
 
@@ -40,8 +40,8 @@
 
 ```python
 # tests/test_models_config.py
-from algotrading.models import Candle, Signal, Position
-from algotrading.config import CONFIG
+from homing_trade.models import Candle, Signal, Position
+from homing_trade.config import CONFIG
 
 
 def test_candle_fields():
@@ -73,8 +73,8 @@ def test_config_values():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/krb/adoc2/rnd/algo-trading && python -m pytest tests/test_models_config.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'algotrading'`
+Run: `cd /Users/krb/adoc2/rnd/homing-trade && python -m pytest tests/test_models_config.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'homing_trade'`
 
 - [ ] **Step 3: Create the files**
 
@@ -85,11 +85,11 @@ pytest>=8.0
 ```
 
 ```python
-# algotrading/__init__.py
+# homing_trade/__init__.py
 ```
 
 ```python
-# algotrading/skills/__init__.py
+# homing_trade/skills/__init__.py
 ```
 
 ```python
@@ -97,7 +97,7 @@ pytest>=8.0
 ```
 
 ```python
-# algotrading/models.py
+# homing_trade/models.py
 from dataclasses import dataclass, field
 
 
@@ -134,7 +134,7 @@ class Position:
 ```
 
 ```python
-# algotrading/config.py
+# homing_trade/config.py
 from dataclasses import dataclass, field
 
 
@@ -167,7 +167,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add requirements.txt algotrading/ tests/
+git add requirements.txt homing_trade/ tests/
 git commit -m "feat: project scaffold, config, and shared models
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -178,7 +178,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 2: Indicators (EMA, RSI)
 
 **Files:**
-- Create: `algotrading/skills/indicators.py`
+- Create: `homing_trade/skills/indicators.py`
 - Test: `tests/test_indicators.py`
 
 **Interfaces:**
@@ -188,7 +188,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_indicators.py
-from algotrading.skills.indicators import ema, rsi
+from homing_trade.skills.indicators import ema, rsi
 
 
 def test_ema_insufficient_data_returns_none():
@@ -228,7 +228,7 @@ Expected: FAIL with `ModuleNotFoundError` / `ImportError: cannot import name 'em
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/skills/indicators.py
+# homing_trade/skills/indicators.py
 def ema(values: list[float], period: int) -> float | None:
     if len(values) < period:
         return None
@@ -267,7 +267,7 @@ Expected: PASS (6 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/skills/indicators.py tests/test_indicators.py
+git add homing_trade/skills/indicators.py tests/test_indicators.py
 git commit -m "feat: EMA and RSI indicators
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -278,7 +278,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 3: Strategy (skill) base interface
 
 **Files:**
-- Create: `algotrading/skills/base.py`
+- Create: `homing_trade/skills/base.py`
 - Test: `tests/test_skill_base.py`
 
 **Interfaces:**
@@ -289,8 +289,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```python
 # tests/test_skill_base.py
 import pytest
-from algotrading.skills.base import Strategy
-from algotrading.models import Signal
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Signal
 
 
 class Dummy(Strategy):
@@ -321,9 +321,9 @@ Expected: FAIL with `ImportError: cannot import name 'Strategy'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/skills/base.py
+# homing_trade/skills/base.py
 from abc import ABC, abstractmethod
-from algotrading.models import Candle, Position, Signal
+from homing_trade.models import Candle, Position, Signal
 
 
 class Strategy(ABC):
@@ -343,7 +343,7 @@ Expected: PASS (2 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/skills/base.py tests/test_skill_base.py
+git add homing_trade/skills/base.py tests/test_skill_base.py
 git commit -m "feat: Strategy (skill) base interface
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -354,7 +354,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 4: SQLite persistence layer
 
 **Files:**
-- Create: `algotrading/db.py`
+- Create: `homing_trade/db.py`
 - Test: `tests/test_db.py`
 
 **Interfaces:**
@@ -376,8 +376,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_db.py
-from algotrading.db import Database
-from algotrading.models import Position
+from homing_trade.db import Database
+from homing_trade.models import Position
 
 
 def make_db(tmp_path):
@@ -434,11 +434,11 @@ Expected: FAIL with `ImportError: cannot import name 'Database'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/db.py
+# homing_trade/db.py
 import json
 import os
 import sqlite3
-from algotrading.models import Position
+from homing_trade.models import Position
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (
@@ -595,7 +595,7 @@ Expected: PASS (5 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/db.py tests/test_db.py
+git add homing_trade/db.py tests/test_db.py
 git commit -m "feat: SQLite persistence layer
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -606,7 +606,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 5: Broker — sizing, fills, fees, P&L (core math)
 
 **Files:**
-- Create: `algotrading/broker.py`
+- Create: `homing_trade/broker.py`
 - Test: `tests/test_broker_core.py`
 
 **Interfaces:**
@@ -622,8 +622,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_broker_core.py
-from algotrading.broker import Broker
-from algotrading.models import Position
+from homing_trade.broker import Broker
+from homing_trade.models import Position
 
 B = Broker(fee=0.0005, slippage=0.0005)
 
@@ -681,8 +681,8 @@ Expected: FAIL with `ImportError: cannot import name 'Broker'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/broker.py
-from algotrading.models import Position
+# homing_trade/broker.py
+from homing_trade.models import Position
 
 
 class Broker:
@@ -732,7 +732,7 @@ Expected: PASS (9 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/broker.py tests/test_broker_core.py
+git add homing_trade/broker.py tests/test_broker_core.py
 git commit -m "feat: broker core math — sizing, slippage fills, fees, P&L
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -743,7 +743,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 6: Broker — stop-loss & liquidation checks
 
 **Files:**
-- Modify: `algotrading/broker.py`
+- Modify: `homing_trade/broker.py`
 - Test: `tests/test_broker_risk.py`
 
 **Interfaces:**
@@ -757,8 +757,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_broker_risk.py
-from algotrading.broker import Broker
-from algotrading.models import Position, Candle
+from homing_trade.broker import Broker
+from homing_trade.models import Position, Candle
 
 B = Broker(fee=0.0005, slippage=0.0005)
 
@@ -812,8 +812,8 @@ Expected: FAIL with `AttributeError: 'Broker' object has no attribute 'liquidati
 Add `Candle` to the import and append these methods to the `Broker` class:
 
 ```python
-# at top of algotrading/broker.py, update the import line:
-from algotrading.models import Candle, Position
+# at top of homing_trade/broker.py, update the import line:
+from homing_trade.models import Candle, Position
 ```
 
 ```python
@@ -843,7 +843,7 @@ Expected: PASS (6 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/broker.py tests/test_broker_risk.py
+git add homing_trade/broker.py tests/test_broker_risk.py
 git commit -m "feat: broker stop-loss and liquidation checks
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -854,7 +854,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 7: Skill — MA crossover trend
 
 **Files:**
-- Create: `algotrading/skills/ma_trend.py`
+- Create: `homing_trade/skills/ma_trend.py`
 - Test: `tests/test_ma_trend.py`
 
 **Interfaces:**
@@ -865,8 +865,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_ma_trend.py
-from algotrading.skills.ma_trend import MaTrend
-from algotrading.models import Candle
+from homing_trade.skills.ma_trend import MaTrend
+from homing_trade.models import Candle
 
 
 def candles_from(closes):
@@ -909,10 +909,10 @@ Expected: FAIL with `ImportError: cannot import name 'MaTrend'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/skills/ma_trend.py
-from algotrading.skills.base import Strategy
-from algotrading.skills.indicators import ema
-from algotrading.models import Candle, Position, Signal
+# homing_trade/skills/ma_trend.py
+from homing_trade.skills.base import Strategy
+from homing_trade.skills.indicators import ema
+from homing_trade.models import Candle, Position, Signal
 
 
 class MaTrend(Strategy):
@@ -948,7 +948,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/skills/ma_trend.py tests/test_ma_trend.py
+git add homing_trade/skills/ma_trend.py tests/test_ma_trend.py
 git commit -m "feat: MA crossover trend skill
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -959,7 +959,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 8: Skill — RSI mean-reversion
 
 **Files:**
-- Create: `algotrading/skills/rsi_revert.py`
+- Create: `homing_trade/skills/rsi_revert.py`
 - Test: `tests/test_rsi_revert.py`
 
 **Interfaces:**
@@ -970,8 +970,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_rsi_revert.py
-from algotrading.skills.rsi_revert import RsiRevert
-from algotrading.models import Candle, Position
+from homing_trade.skills.rsi_revert import RsiRevert
+from homing_trade.models import Candle, Position
 
 
 def candles_from(closes):
@@ -1016,10 +1016,10 @@ Expected: FAIL with `ImportError: cannot import name 'RsiRevert'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/skills/rsi_revert.py
-from algotrading.skills.base import Strategy
-from algotrading.skills.indicators import rsi
-from algotrading.models import Candle, Position, Signal
+# homing_trade/skills/rsi_revert.py
+from homing_trade.skills.base import Strategy
+from homing_trade.skills.indicators import rsi
+from homing_trade.models import Candle, Position, Signal
 
 
 class RsiRevert(Strategy):
@@ -1053,7 +1053,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/skills/rsi_revert.py tests/test_rsi_revert.py
+git add homing_trade/skills/rsi_revert.py tests/test_rsi_revert.py
 git commit -m "feat: RSI mean-reversion skill
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1064,7 +1064,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 9: Skill — Grid (simplified band)
 
 **Files:**
-- Create: `algotrading/skills/grid.py`
+- Create: `homing_trade/skills/grid.py`
 - Test: `tests/test_grid.py`
 
 **Interfaces:**
@@ -1075,8 +1075,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_grid.py
-from algotrading.skills.grid import Grid
-from algotrading.models import Candle, Position
+from homing_trade.skills.grid import Grid
+from homing_trade.models import Candle, Position
 
 
 def candles_from(closes):
@@ -1121,9 +1121,9 @@ Expected: FAIL with `ImportError: cannot import name 'Grid'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/skills/grid.py
-from algotrading.skills.base import Strategy
-from algotrading.models import Candle, Position, Signal
+# homing_trade/skills/grid.py
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Candle, Position, Signal
 
 
 class Grid(Strategy):
@@ -1161,7 +1161,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/skills/grid.py tests/test_grid.py
+git add homing_trade/skills/grid.py tests/test_grid.py
 git commit -m "feat: grid trading skill (simplified band)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1172,7 +1172,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 10: Data feed — CoinDCX candles parsing + fetch
 
 **Files:**
-- Create: `algotrading/feed.py`
+- Create: `homing_trade/feed.py`
 - Create: `tests/fixtures/candles_sample.json`
 - Test: `tests/test_feed.py`
 
@@ -1197,7 +1197,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 # tests/test_feed.py
 import json
 from pathlib import Path
-from algotrading.feed import parse_candles, get_candles, CANDLES_URL
+from homing_trade.feed import parse_candles, get_candles, CANDLES_URL
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "candles_sample.json").read_text())
 
@@ -1235,9 +1235,9 @@ Expected: FAIL with `ImportError: cannot import name 'parse_candles'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/feed.py
+# homing_trade/feed.py
 import requests
-from algotrading.models import Candle
+from homing_trade.models import Candle
 
 CANDLES_URL = "https://public.coindcx.com/market_data/candles"
 
@@ -1273,7 +1273,7 @@ Expected: PASS (2 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/feed.py tests/test_feed.py tests/fixtures/candles_sample.json
+git add homing_trade/feed.py tests/test_feed.py tests/fixtures/candles_sample.json
 git commit -m "feat: CoinDCX candles feed (parse + injectable fetch)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1284,7 +1284,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 11: Engine — wire feed → skills → broker → db (one tick)
 
 **Files:**
-- Create: `algotrading/engine.py`
+- Create: `homing_trade/engine.py`
 - Test: `tests/test_engine.py`
 
 **Interfaces:**
@@ -1300,11 +1300,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 # tests/test_engine.py
 import json
 from pathlib import Path
-from algotrading.engine import build_skills, process_tick, run
-from algotrading.db import Database
-from algotrading.broker import Broker
-from algotrading.config import Config
-from algotrading.models import Candle
+from homing_trade.engine import build_skills, process_tick, run
+from homing_trade.db import Database
+from homing_trade.broker import Broker
+from homing_trade.config import Config
+from homing_trade.models import Candle
 
 
 def rising_then_drop():
@@ -1357,16 +1357,16 @@ Expected: FAIL with `ImportError: cannot import name 'build_skills'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/engine.py
+# homing_trade/engine.py
 import time
-from algotrading.config import CONFIG
-from algotrading.db import Database
-from algotrading.broker import Broker
-from algotrading.feed import get_candles
-from algotrading.models import Position
-from algotrading.skills.ma_trend import MaTrend
-from algotrading.skills.rsi_revert import RsiRevert
-from algotrading.skills.grid import Grid
+from homing_trade.config import CONFIG
+from homing_trade.db import Database
+from homing_trade.broker import Broker
+from homing_trade.feed import get_candles
+from homing_trade.models import Position
+from homing_trade.skills.ma_trend import MaTrend
+from homing_trade.skills.rsi_revert import RsiRevert
+from homing_trade.skills.grid import Grid
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
@@ -1471,7 +1471,7 @@ Run: `python -m pytest -v`
 Expected: ALL PASS
 
 ```bash
-git add algotrading/engine.py tests/test_engine.py
+git add homing_trade/engine.py tests/test_engine.py
 git commit -m "feat: engine loop wiring feed, skills, broker, db
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1482,7 +1482,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 12: Report — leaderboard + metrics CLI
 
 **Files:**
-- Create: `algotrading/report.py`
+- Create: `homing_trade/report.py`
 - Test: `tests/test_report.py`
 
 **Interfaces:**
@@ -1497,8 +1497,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_report.py
-from algotrading.db import Database
-from algotrading.report import compute_stats, leaderboard, format_leaderboard
+from homing_trade.db import Database
+from homing_trade.report import compute_stats, leaderboard, format_leaderboard
 
 
 def seed(tmp_path):
@@ -1545,9 +1545,9 @@ Expected: FAIL with `ImportError: cannot import name 'compute_stats'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-# algotrading/report.py
-from algotrading.config import CONFIG
-from algotrading.db import Database
+# homing_trade/report.py
+from homing_trade.config import CONFIG
+from homing_trade.db import Database
 
 
 def compute_stats(db: Database, strategy: str, starting_balance: float) -> dict:
@@ -1630,13 +1630,13 @@ Expected: ALL PASS
 Smoke test against the real (live) feed for one tick, then show the leaderboard:
 
 ```bash
-python -c "from algotrading.engine import run; run(max_ticks=1, sleeper=lambda s: None)"
-python -m algotrading.report
+python -c "from homing_trade.engine import run; run(max_ticks=1, sleeper=lambda s: None)"
+python -m homing_trade.report
 ```
 Expected: no error; a leaderboard table prints with the 3 strategies.
 
 ```bash
-git add algotrading/report.py tests/test_report.py
+git add homing_trade/report.py tests/test_report.py
 git commit -m "feat: leaderboard + metrics report CLI
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"

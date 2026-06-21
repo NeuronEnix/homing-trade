@@ -1,9 +1,9 @@
 # tests/test_backtest.py
-from algotrading.backtest import run_backtest
-from algotrading.config import CONFIG
-from algotrading.skills.ma_trend import MaTrend
-from algotrading.skills.rsi_revert import RsiRevert
-from algotrading.models import Candle
+from homing_trade.backtest import run_backtest
+from homing_trade.config import CONFIG
+from homing_trade.skills.ma_trend import MaTrend
+from homing_trade.skills.rsi_revert import RsiRevert
+from homing_trade.models import Candle
 
 
 def candles_from(prices):

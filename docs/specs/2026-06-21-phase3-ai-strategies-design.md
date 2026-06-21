@@ -132,7 +132,7 @@ defaults): `agent_mode="heuristic"`, `llm_model="claude-opus-4-8"`, `rl_alpha=0.
 
 ## 7. Component / file map
 ```
-algotrading/
+homing_trade/
 ├── skills/rl_qlearn.py   # NEW — tabular Q-learning Strategy + RLLearner
 ├── agents/__init__.py    # NEW
 ├── agents/base.py        # NEW — Agent ABC + AgentView

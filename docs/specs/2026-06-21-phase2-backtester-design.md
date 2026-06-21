@@ -161,7 +161,7 @@ sorted best-first, followed by the one-line reminder:
 ## 10. Components / file map
 
 ```
-algotrading/
+homing_trade/
 ├── db.py        # + candles table & methods (modify, additive)
 ├── engine.py    # + save live candles in run() (modify, additive)
 ├── history.py   # NEW — gap-aware backfill + paging

@@ -1,6 +1,6 @@
 # tests/test_ma_trend.py
-from algotrading.skills.ma_trend import MaTrend
-from algotrading.models import Candle
+from homing_trade.skills.ma_trend import MaTrend
+from homing_trade.models import Candle
 
 
 def candles_from(closes):

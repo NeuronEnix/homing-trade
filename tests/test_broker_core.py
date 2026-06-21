@@ -1,5 +1,5 @@
-from algotrading.broker import Broker
-from algotrading.models import Position
+from homing_trade.broker import Broker
+from homing_trade.models import Position
 
 B = Broker(fee=0.0005, slippage=0.0005)
 

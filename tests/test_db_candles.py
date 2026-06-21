@@ -1,5 +1,5 @@
-from algotrading.db import Database
-from algotrading.models import Candle
+from homing_trade.db import Database
+from homing_trade.models import Candle
 
 
 def mk(time, close, src_close=None):

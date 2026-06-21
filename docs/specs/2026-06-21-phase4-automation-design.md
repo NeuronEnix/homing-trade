@@ -66,7 +66,7 @@ Three pieces:
     you can check on it.
   - `run_engine`/`sleeper` are injectable so the daemon is unit-testable with no real loop:
     a fake `run_engine` that returns immediately (or raises once) exercises start/restart/stop.
-- CLI: `python -m algotrading.daemon` runs the paper engine forever with the configured
+- CLI: `python -m homing_trade.daemon` runs the paper engine forever with the configured
   notifier and a heartbeat file. **Paper only** — the CLI never constructs a live runner.
 
 ## 6. Live-trading adapter (`live_broker.py`) — guarded, dry-run default
@@ -96,7 +96,7 @@ Three pieces:
 
 ## 8. Component / file map
 ```
-algotrading/
+homing_trade/
 ├── notify.py        # NEW — Notifier ABC + Console/File/Null/Webhook + build_notifier
 ├── daemon.py        # NEW — supervisor (signals, heartbeat, restart, lifecycle alerts) + CLI
 ├── live_broker.py   # NEW — guarded CoinDCX order adapter (dry-run default, HMAC signing)

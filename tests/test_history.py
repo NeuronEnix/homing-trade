@@ -1,5 +1,5 @@
-from algotrading.db import Database
-from algotrading.history import ensure_history
+from homing_trade.db import Database
+from homing_trade.history import ensure_history
 
 STEP = 3_600_000  # 1h in ms
 NOW = 1000 * STEP  # interval-aligned "now"
@@ -43,7 +43,7 @@ def test_second_call_makes_no_fetch(tmp_path):
 
 def test_gap_fill_only_fetches_missing(tmp_path):
     d = Database(str(tmp_path / "h.db"))
-    from algotrading.models import Candle
+    from homing_trade.models import Candle
     # Pre-store a middle band [NOW-20h .. NOW-10h]
     mid = [Candle(open=100, high=101, low=99, close=100, volume=1, time=NOW - k * STEP)
            for k in range(10, 21)]

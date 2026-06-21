@@ -1,9 +1,9 @@
 # tests/test_engine_allocator.py
-from algotrading.engine import process_tick
-from algotrading.broker import Broker
-from algotrading.ledger import MemoryLedger
-from algotrading.config import Config
-from algotrading.models import Candle
+from homing_trade.engine import process_tick
+from homing_trade.broker import Broker
+from homing_trade.ledger import MemoryLedger
+from homing_trade.config import Config
+from homing_trade.models import Candle
 
 
 def candles(prices):
@@ -14,8 +14,8 @@ def candles(prices):
 def _force_long_window():
     # rising then a tick that triggers ma_trend LONG is hard to guarantee; instead use a
     # MemoryLedger and a skill whose signal we control via a stub.
-    from algotrading.skills.base import Strategy
-    from algotrading.models import Signal
+    from homing_trade.skills.base import Strategy
+    from homing_trade.models import Signal
 
     class AlwaysLong(Strategy):
         name = "ma_trend"
@@ -28,8 +28,8 @@ def _force_long_window2():
     # A second stub skill (named rsi_revert) that also goes long immediately.
     # Used alongside _force_long_window() so that with two strategies the allocator
     # assigns each weight=0.55 (<1), producing a strictly smaller position than weight=1.
-    from algotrading.skills.base import Strategy
-    from algotrading.models import Signal
+    from homing_trade.skills.base import Strategy
+    from homing_trade.models import Signal
 
     class AlwaysLong2(Strategy):
         name = "rsi_revert"

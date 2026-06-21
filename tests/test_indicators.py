@@ -1,4 +1,4 @@
-from algotrading.skills.indicators import ema, rsi
+from homing_trade.skills.indicators import ema, rsi
 
 
 def test_ema_insufficient_data_returns_none():

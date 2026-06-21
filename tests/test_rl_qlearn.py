@@ -1,5 +1,5 @@
-from algotrading.skills.rl_qlearn import RLQLearn, discretize, ACTIONS
-from algotrading.models import Candle, Position
+from homing_trade.skills.rl_qlearn import RLQLearn, discretize, ACTIONS
+from homing_trade.models import Candle, Position
 
 
 def candles_from(prices):

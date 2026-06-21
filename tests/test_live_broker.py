@@ -2,8 +2,8 @@ import hashlib
 import hmac
 import json
 import pytest
-from algotrading.live_broker import sign, build_order_payload, LiveBroker
-from algotrading.models import Signal
+from homing_trade.live_broker import sign, build_order_payload, LiveBroker
+from homing_trade.models import Signal
 
 
 def test_sign_matches_hmac_sha256_of_compact_json():

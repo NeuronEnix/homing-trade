@@ -1,6 +1,6 @@
 # tests/test_grid.py
-from algotrading.skills.grid import Grid
-from algotrading.models import Candle, Position
+from homing_trade.skills.grid import Grid
+from homing_trade.models import Candle, Position
 
 
 def candles_from(closes):

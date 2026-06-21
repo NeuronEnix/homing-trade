@@ -1,6 +1,6 @@
 import json
-from algotrading.daemon import run_daemon
-from algotrading.config import Config
+from homing_trade.daemon import run_daemon
+from homing_trade.config import Config
 
 
 class _Rec:

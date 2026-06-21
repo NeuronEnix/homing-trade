@@ -1,6 +1,6 @@
 import pytest
-from algotrading.skills.base import Strategy
-from algotrading.models import Signal
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Signal
 
 
 class Dummy(Strategy):

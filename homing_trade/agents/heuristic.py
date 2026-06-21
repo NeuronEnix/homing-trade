@@ -1,5 +1,5 @@
-from algotrading.agents.base import Agent, AgentView
-from algotrading.skills.indicators import ema, rsi
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.skills.indicators import ema, rsi
 
 
 class BullAgent(Agent):

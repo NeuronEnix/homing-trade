@@ -1,4 +1,4 @@
-# algo-trading — Paper Trading Strategy Lab
+# homing-trade — Paper Trading Strategy Lab
 
 A **paper-trading** lab for crypto futures-style trading on **CoinDCX** price data.
 Multiple strategies ("skills") trade isolated **virtual ₹5,000 wallets** against live
@@ -25,15 +25,15 @@ Specs: `docs/specs/`. Plans: `docs/superpowers/plans/`.
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m algotrading.engine     # run the paper tournament loop
-python -m algotrading.report     # leaderboard
-python -m algotrading.backtest --days 90        # backtest all strategies on stored history
-python -m algotrading.daemon     # run the paper bot unattended (heartbeat + alerts)
+python -m homing_trade.engine     # run the paper tournament loop
+python -m homing_trade.report     # leaderboard
+python -m homing_trade.backtest --days 90        # backtest all strategies on stored history
+python -m homing_trade.daemon     # run the paper bot unattended (heartbeat + alerts)
 ```
 
 ## Live trading (opt-in, user-armed only)
 
-`algotrading/live_broker.py` is a complete CoinDCX order adapter, but it is **dry-run by
+`homing_trade/live_broker.py` is a complete CoinDCX order adapter, but it is **dry-run by
 default and never wired into the automated bot**. Going live is a deliberate action *you*
 take: set your keys in the environment (`COINDCX_API_KEY` / `COINDCX_API_SECRET`), construct
 `LiveBroker(api_key=..., api_secret=..., dry_run=False)` yourself, and route signals to it.

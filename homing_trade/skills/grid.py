@@ -1,6 +1,6 @@
-# algotrading/skills/grid.py
-from algotrading.skills.base import Strategy
-from algotrading.models import Candle, Position, Signal
+# homing_trade/skills/grid.py
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Candle, Position, Signal
 
 
 class Grid(Strategy):

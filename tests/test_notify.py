@@ -1,6 +1,6 @@
-from algotrading.notify import (Notifier, NullNotifier, ConsoleNotifier, FileNotifier,
+from homing_trade.notify import (Notifier, NullNotifier, ConsoleNotifier, FileNotifier,
                                 WebhookNotifier, build_notifier)
-from algotrading.config import Config
+from homing_trade.config import Config
 
 
 def test_null_notifier_no_op():

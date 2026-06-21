@@ -1,5 +1,5 @@
-from algotrading.models import Candle, Signal, Position
-from algotrading.config import CONFIG
+from homing_trade.models import Candle, Signal, Position
+from homing_trade.config import CONFIG
 
 
 def test_candle_fields():

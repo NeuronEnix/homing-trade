@@ -1,7 +1,7 @@
 import json
-from algotrading.agents.llm import LlmAgent
-from algotrading.agents.base import AgentView
-from algotrading.models import Candle
+from homing_trade.agents.llm import LlmAgent
+from homing_trade.agents.base import AgentView
+from homing_trade.models import Candle
 
 
 def candles_from(prices):

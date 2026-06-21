@@ -1,6 +1,6 @@
 import json
-from algotrading.agents.base import Agent, AgentView
-from algotrading.skills.indicators import ema, rsi
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.skills.indicators import ema, rsi
 
 _ROLE_PROMPT = {
     "bull": ("You are a BULLISH crypto futures analyst. Make the strongest honest case for "

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from algotrading.models import Candle, Position, Signal
+from homing_trade.models import Candle, Position, Signal
 
 
 class Strategy(ABC):

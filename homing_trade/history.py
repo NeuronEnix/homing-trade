@@ -1,5 +1,5 @@
-from algotrading.feed import parse_candles, CANDLES_URL, _http_fetcher
-from algotrading.metrics import CANDLE_INTERVAL_MS
+from homing_trade.feed import parse_candles, CANDLES_URL, _http_fetcher
+from homing_trade.metrics import CANDLE_INTERVAL_MS
 
 _DAY_MS = 86_400_000
 _MAX_LIMIT = 1000

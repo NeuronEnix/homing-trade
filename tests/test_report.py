@@ -1,5 +1,5 @@
-from algotrading.db import Database
-from algotrading.report import compute_stats, leaderboard, format_leaderboard
+from homing_trade.db import Database
+from homing_trade.report import compute_stats, leaderboard, format_leaderboard
 
 
 def seed(tmp_path):

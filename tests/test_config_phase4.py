@@ -1,4 +1,4 @@
-from algotrading.config import CONFIG
+from homing_trade.config import CONFIG
 
 
 def test_phase4_defaults():

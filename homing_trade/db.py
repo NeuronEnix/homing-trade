@@ -1,7 +1,7 @@
 import json
 import os
 import sqlite3
-from algotrading.models import Candle, Position
+from homing_trade.models import Candle, Position
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (

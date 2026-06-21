@@ -1,6 +1,6 @@
-from algotrading.agents.base import Agent, AgentView
-from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
-from algotrading.models import Candle
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
+from homing_trade.models import Candle
 
 
 def candles_from(prices, span=1.0):

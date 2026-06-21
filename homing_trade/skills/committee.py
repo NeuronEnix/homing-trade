@@ -1,11 +1,11 @@
-from algotrading.skills.base import Strategy
-from algotrading.models import Signal
-from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Signal
+from homing_trade.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
 
 
 def build_agents(mode, cfg):
     if mode == "llm":
-        from algotrading.agents.llm import LlmAgent
+        from homing_trade.agents.llm import LlmAgent
         return (LlmAgent("bull", cfg.llm_model),
                 LlmAgent("bear", cfg.llm_model),
                 LlmAgent("risk", cfg.llm_model))

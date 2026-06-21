@@ -1,6 +1,6 @@
 # tests/test_metrics.py
 import math
-from algotrading import metrics
+from homing_trade import metrics
 
 
 def closes(*pnls):

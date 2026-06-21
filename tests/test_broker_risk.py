@@ -1,5 +1,5 @@
-from algotrading.broker import Broker
-from algotrading.models import Position, Candle
+from homing_trade.broker import Broker
+from homing_trade.models import Position, Candle
 
 B = Broker(fee=0.0005, slippage=0.0005)
 

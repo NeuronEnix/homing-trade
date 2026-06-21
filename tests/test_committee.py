@@ -1,8 +1,8 @@
-from algotrading.skills.committee import Committee, build_agents
-from algotrading.agents.base import Agent, AgentView
-from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
-from algotrading.config import CONFIG
-from algotrading.models import Candle, Position
+from homing_trade.skills.committee import Committee, build_agents
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
+from homing_trade.config import CONFIG
+from homing_trade.models import Candle, Position
 
 
 def candles_from(prices):

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from algotrading.feed import parse_candles, get_candles, CANDLES_URL
+from homing_trade.feed import parse_candles, get_candles, CANDLES_URL
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "candles_sample.json").read_text())
 

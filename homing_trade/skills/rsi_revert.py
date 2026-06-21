@@ -1,7 +1,7 @@
-# algotrading/skills/rsi_revert.py
-from algotrading.skills.base import Strategy
-from algotrading.skills.indicators import rsi
-from algotrading.models import Candle, Position, Signal
+# homing_trade/skills/rsi_revert.py
+from homing_trade.skills.base import Strategy
+from homing_trade.skills.indicators import rsi
+from homing_trade.models import Candle, Position, Signal
 
 
 class RsiRevert(Strategy):

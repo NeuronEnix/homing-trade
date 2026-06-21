@@ -1,5 +1,5 @@
-from algotrading.ledger import MemoryLedger
-from algotrading.models import Position
+from homing_trade.ledger import MemoryLedger
+from homing_trade.models import Position
 
 
 def test_balance_get_set():

@@ -14,7 +14,7 @@
 - Currency INR; paper only; no API keys committed; `data/` gitignored.
 - New skills implement `Strategy.on_candle(candles, position) -> Signal` and reuse `Broker`/`process_tick` unchanged.
 - Default Claude model for LLM agents is `claude-opus-4-8` (configurable). LLM mode is OFF by default (`agent_mode="heuristic"`).
-- Run tests via `cd /Users/krb/adoc2/rnd/algo-trading && ./.venv/bin/python -m pytest <path> -v`.
+- Run tests via `cd /Users/krb/adoc2/rnd/homing-trade && ./.venv/bin/python -m pytest <path> -v`.
 - Commit after each task; every commit message ends with:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 
@@ -23,7 +23,7 @@
 ### Task 1: Config additions
 
 **Files:**
-- Modify: `algotrading/config.py`
+- Modify: `homing_trade/config.py`
 - Test: `tests/test_config_phase3.py`
 
 **Interfaces:**
@@ -33,7 +33,7 @@
 
 ```python
 # tests/test_config_phase3.py
-from algotrading.config import CONFIG
+from homing_trade.config import CONFIG
 
 
 def test_phase3_defaults():
@@ -55,7 +55,7 @@ def test_phase3_defaults():
 Run: `./.venv/bin/python -m pytest tests/test_config_phase3.py -v`
 Expected: FAIL (`AttributeError: ... 'agent_mode'`)
 
-- [ ] **Step 3: Implement** — add these fields to the `Config` dataclass in `algotrading/config.py` (after `enabled_skills`, before `CONFIG = Config()`):
+- [ ] **Step 3: Implement** — add these fields to the `Config` dataclass in `homing_trade/config.py` (after `enabled_skills`, before `CONFIG = Config()`):
 
 ```python
     agent_mode: str = "heuristic"           # "heuristic" | "llm"
@@ -79,7 +79,7 @@ Expected: FAIL (`AttributeError: ... 'agent_mode'`)
 
 Run: `./.venv/bin/python -m pytest -q` → all pass.
 ```bash
-git add algotrading/config.py tests/test_config_phase3.py
+git add homing_trade/config.py tests/test_config_phase3.py
 git commit -m "feat: Phase 3 config fields (RL, agents, allocator)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -90,8 +90,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 2: Reinforcement-learning skill (tabular Q-learning)
 
 **Files:**
-- Create: `algotrading/skills/rl_qlearn.py`
-- Modify: `algotrading/engine.py` (register `rl_qlearn` in `_SKILL_FACTORY`)
+- Create: `homing_trade/skills/rl_qlearn.py`
+- Modify: `homing_trade/engine.py` (register `rl_qlearn` in `_SKILL_FACTORY`)
 - Test: `tests/test_rl_qlearn.py`
 
 **Interfaces:**
@@ -102,8 +102,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_rl_qlearn.py
-from algotrading.skills.rl_qlearn import RLQLearn, discretize, ACTIONS
-from algotrading.models import Candle, Position
+from homing_trade.skills.rl_qlearn import RLQLearn, discretize, ACTIONS
+from homing_trade.models import Candle, Position
 
 
 def candles_from(prices):
@@ -164,12 +164,12 @@ def test_persistence_roundtrip(tmp_path):
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/skills/rl_qlearn.py
+# homing_trade/skills/rl_qlearn.py
 import json
 import os
-from algotrading.skills.base import Strategy
-from algotrading.skills.indicators import ema, rsi
-from algotrading.models import Candle, Position, Signal
+from homing_trade.skills.base import Strategy
+from homing_trade.skills.indicators import ema, rsi
+from homing_trade.models import Candle, Position, Signal
 
 ACTIONS = ("HOLD", "ENTER_LONG", "CLOSE")
 
@@ -282,7 +282,7 @@ class RLQLearn(Strategy):
             self.q = json.load(f)
 ```
 
-Then register it in `algotrading/engine.py`: add the import `from algotrading.skills.rl_qlearn import RLQLearn` near the other skill imports, and add `"rl_qlearn": RLQLearn,` to the `_SKILL_FACTORY` dict.
+Then register it in `homing_trade/engine.py`: add the import `from homing_trade.skills.rl_qlearn import RLQLearn` near the other skill imports, and add `"rl_qlearn": RLQLearn,` to the `_SKILL_FACTORY` dict.
 
 - [ ] **Step 4: Run test to verify it passes** — `./.venv/bin/python -m pytest tests/test_rl_qlearn.py -v` → PASS (6 passed)
 
@@ -290,7 +290,7 @@ Then register it in `algotrading/engine.py`: add the import `from algotrading.sk
 
 Run: `./.venv/bin/python -m pytest -q` → all pass.
 ```bash
-git add algotrading/skills/rl_qlearn.py algotrading/engine.py tests/test_rl_qlearn.py
+git add homing_trade/skills/rl_qlearn.py homing_trade/engine.py tests/test_rl_qlearn.py
 git commit -m "feat: tabular Q-learning RL strategy
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -301,9 +301,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 3: Agent base + heuristic agents
 
 **Files:**
-- Create: `algotrading/agents/__init__.py`
-- Create: `algotrading/agents/base.py`
-- Create: `algotrading/agents/heuristic.py`
+- Create: `homing_trade/agents/__init__.py`
+- Create: `homing_trade/agents/base.py`
+- Create: `homing_trade/agents/heuristic.py`
 - Test: `tests/test_agents_heuristic.py`
 
 **Interfaces:**
@@ -313,9 +313,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_agents_heuristic.py
-from algotrading.agents.base import Agent, AgentView
-from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
-from algotrading.models import Candle
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
+from homing_trade.models import Candle
 
 
 def candles_from(prices, span=1.0):
@@ -360,14 +360,14 @@ def test_risk_neutral_on_calm():
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/agents/__init__.py
+# homing_trade/agents/__init__.py
 ```
 
 ```python
-# algotrading/agents/base.py
+# homing_trade/agents/base.py
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from algotrading.models import Candle, Position
+from homing_trade.models import Candle, Position
 
 
 @dataclass
@@ -386,9 +386,9 @@ class Agent(ABC):
 ```
 
 ```python
-# algotrading/agents/heuristic.py
-from algotrading.agents.base import Agent, AgentView
-from algotrading.skills.indicators import ema, rsi
+# homing_trade/agents/heuristic.py
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.skills.indicators import ema, rsi
 
 
 class BullAgent(Agent):
@@ -451,7 +451,7 @@ class RiskSupervisor(Agent):
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/agents/__init__.py algotrading/agents/base.py algotrading/agents/heuristic.py tests/test_agents_heuristic.py
+git add homing_trade/agents/__init__.py homing_trade/agents/base.py homing_trade/agents/heuristic.py tests/test_agents_heuristic.py
 git commit -m "feat: agent framework + Bull/Bear/RiskSupervisor heuristic agents
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -462,7 +462,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 4: Optional Claude-backed LLM agents
 
 **Files:**
-- Create: `algotrading/agents/llm.py`
+- Create: `homing_trade/agents/llm.py`
 - Test: `tests/test_agents_llm.py`
 
 **Interfaces:**
@@ -474,9 +474,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```python
 # tests/test_agents_llm.py
 import json
-from algotrading.agents.llm import LlmAgent
-from algotrading.agents.base import AgentView
-from algotrading.models import Candle
+from homing_trade.agents.llm import LlmAgent
+from homing_trade.agents.base import AgentView
+from homing_trade.models import Candle
 
 
 def candles_from(prices):
@@ -536,15 +536,15 @@ def test_llm_bad_json_returns_neutral():
     assert v.stance == "NEUTRAL"
 ```
 
-- [ ] **Step 2: Run test to verify it fails** — FAIL (ModuleNotFoundError on `algotrading.agents.llm`)
+- [ ] **Step 2: Run test to verify it fails** — FAIL (ModuleNotFoundError on `homing_trade.agents.llm`)
 
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/agents/llm.py
+# homing_trade/agents/llm.py
 import json
-from algotrading.agents.base import Agent, AgentView
-from algotrading.skills.indicators import ema, rsi
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.skills.indicators import ema, rsi
 
 _ROLE_PROMPT = {
     "bull": ("You are a BULLISH crypto futures analyst. Make the strongest honest case for "
@@ -617,7 +617,7 @@ class LlmAgent(Agent):
 - [ ] **Step 5: Commit**
 
 ```bash
-git add algotrading/agents/llm.py tests/test_agents_llm.py
+git add homing_trade/agents/llm.py tests/test_agents_llm.py
 git commit -m "feat: optional Claude-backed agents (lazy anthropic, error-tolerant, off by default)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -628,8 +628,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 5: Committee strategy
 
 **Files:**
-- Create: `algotrading/skills/committee.py`
-- Modify: `algotrading/engine.py` (register `committee`)
+- Create: `homing_trade/skills/committee.py`
+- Modify: `homing_trade/engine.py` (register `committee`)
 - Test: `tests/test_committee.py`
 
 **Interfaces:**
@@ -640,11 +640,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_committee.py
-from algotrading.skills.committee import Committee, build_agents
-from algotrading.agents.base import Agent, AgentView
-from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
-from algotrading.config import CONFIG
-from algotrading.models import Candle, Position
+from homing_trade.skills.committee import Committee, build_agents
+from homing_trade.agents.base import Agent, AgentView
+from homing_trade.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
+from homing_trade.config import CONFIG
+from homing_trade.models import Candle, Position
 
 
 def candles_from(prices):
@@ -702,15 +702,15 @@ def test_no_consensus_holds():
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/skills/committee.py
-from algotrading.skills.base import Strategy
-from algotrading.models import Candle, Position, Signal
-from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
+# homing_trade/skills/committee.py
+from homing_trade.skills.base import Strategy
+from homing_trade.models import Candle, Position, Signal
+from homing_trade.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
 
 
 def build_agents(mode, cfg):
     if mode == "llm":
-        from algotrading.agents.llm import LlmAgent
+        from homing_trade.agents.llm import LlmAgent
         return (LlmAgent("bull", cfg.llm_model),
                 LlmAgent("bear", cfg.llm_model),
                 LlmAgent("risk", cfg.llm_model))
@@ -746,7 +746,7 @@ class Committee(Strategy):
         return Signal("HOLD", reason="no consensus", indicators=ind)
 ```
 
-Register in `algotrading/engine.py`: add `from algotrading.skills.committee import Committee` and `"committee": Committee,` to `_SKILL_FACTORY`.
+Register in `homing_trade/engine.py`: add `from homing_trade.skills.committee import Committee` and `"committee": Committee,` to `_SKILL_FACTORY`.
 
 - [ ] **Step 4: Run test to verify it passes** — PASS (5 passed)
 
@@ -754,7 +754,7 @@ Register in `algotrading/engine.py`: add `from algotrading.skills.committee impo
 
 Run: `./.venv/bin/python -m pytest -q` → all pass.
 ```bash
-git add algotrading/skills/committee.py algotrading/engine.py tests/test_committee.py
+git add homing_trade/skills/committee.py homing_trade/engine.py tests/test_committee.py
 git commit -m "feat: Bull/Bear/Risk-Supervisor committee strategy
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -765,9 +765,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 6: Meta-allocator + uniform recent-pnl accessor
 
 **Files:**
-- Create: `algotrading/allocator.py`
-- Modify: `algotrading/db.py` (add `recent_close_pnls`)
-- Modify: `algotrading/ledger.py` (add `recent_close_pnls`)
+- Create: `homing_trade/allocator.py`
+- Modify: `homing_trade/db.py` (add `recent_close_pnls`)
+- Modify: `homing_trade/ledger.py` (add `recent_close_pnls`)
 - Test: `tests/test_allocator.py`
 
 **Interfaces:**
@@ -778,9 +778,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_allocator.py
-from algotrading.allocator import compute_allocations, recent_performance
-from algotrading.db import Database
-from algotrading.ledger import MemoryLedger
+from homing_trade.allocator import compute_allocations, recent_performance
+from homing_trade.db import Database
+from homing_trade.ledger import MemoryLedger
 
 
 def test_compute_allocations_winner_gets_more_all_above_floor():
@@ -815,12 +815,12 @@ def test_recent_performance_ledger():
     assert recent_performance(led, "rl_qlearn", 20) == 4.0
 ```
 
-- [ ] **Step 2: Run test to verify it fails** — FAIL (ModuleNotFoundError on `algotrading.allocator`)
+- [ ] **Step 2: Run test to verify it fails** — FAIL (ModuleNotFoundError on `homing_trade.allocator`)
 
 - [ ] **Step 3: Implement**
 
 ```python
-# algotrading/allocator.py
+# homing_trade/allocator.py
 import math
 
 
@@ -840,7 +840,7 @@ def recent_performance(store, strategy, lookback=20):
     return sum(pnls) / len(pnls) if pnls else 0.0
 ```
 
-Add to `algotrading/db.py` `Database`:
+Add to `homing_trade/db.py` `Database`:
 
 ```python
     def recent_close_pnls(self, strategy, limit):
@@ -850,7 +850,7 @@ Add to `algotrading/db.py` `Database`:
         return [float(r["pnl"]) for r in rows]
 ```
 
-Add to `algotrading/ledger.py` `MemoryLedger`:
+Add to `homing_trade/ledger.py` `MemoryLedger`:
 
 ```python
     def recent_close_pnls(self, strategy, limit):
@@ -865,7 +865,7 @@ Add to `algotrading/ledger.py` `MemoryLedger`:
 
 Run: `./.venv/bin/python -m pytest -q` → all pass.
 ```bash
-git add algotrading/allocator.py algotrading/db.py algotrading/ledger.py tests/test_allocator.py
+git add homing_trade/allocator.py homing_trade/db.py homing_trade/ledger.py tests/test_allocator.py
 git commit -m "feat: meta-allocator + uniform recent_close_pnls accessor
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -876,7 +876,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 7: Allocator sizing hook in the engine (config-gated, default off)
 
 **Files:**
-- Modify: `algotrading/engine.py` (`process_tick` + `_open_position` accept an allocation weight)
+- Modify: `homing_trade/engine.py` (`process_tick` + `_open_position` accept an allocation weight)
 - Test: `tests/test_engine_allocator.py`
 
 **Interfaces:**
@@ -887,11 +887,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_engine_allocator.py
-from algotrading.engine import process_tick, build_skills
-from algotrading.broker import Broker
-from algotrading.ledger import MemoryLedger
-from algotrading.config import Config
-from algotrading.models import Candle
+from homing_trade.engine import process_tick, build_skills
+from homing_trade.broker import Broker
+from homing_trade.ledger import MemoryLedger
+from homing_trade.config import Config
+from homing_trade.models import Candle
 
 
 def candles(prices):
@@ -902,8 +902,8 @@ def candles(prices):
 def _force_long_window():
     # rising then a tick that triggers ma_trend LONG is hard to guarantee; instead use a
     # MemoryLedger and a skill whose signal we control via a stub.
-    from algotrading.skills.base import Strategy
-    from algotrading.models import Signal
+    from homing_trade.skills.base import Strategy
+    from homing_trade.models import Signal
 
     class AlwaysLong(Strategy):
         name = "ma_trend"
@@ -933,9 +933,9 @@ def test_allocator_disabled_uses_full_risk():
 
 - [ ] **Step 2: Run test to verify it fails** — FAIL (allocator not wired; both sizes equal)
 
-- [ ] **Step 3: Implement** — in `algotrading/engine.py`:
+- [ ] **Step 3: Implement** — in `homing_trade/engine.py`:
 
-Add import near the top: `from algotrading.allocator import compute_allocations, recent_performance`.
+Add import near the top: `from homing_trade.allocator import compute_allocations, recent_performance`.
 
 Change `_open_position` to accept a `weight` and scale `risk_pct`:
 
@@ -977,7 +977,7 @@ def process_tick(db, broker, skills, candles, cfg):
 
 Run: `./.venv/bin/python -m pytest -q` → all pass (existing engine/backtest tests stay green because allocator is default-off and `weight` defaults to 1.0).
 ```bash
-git add algotrading/engine.py tests/test_engine_allocator.py
+git add homing_trade/engine.py tests/test_engine_allocator.py
 git commit -m "feat: config-gated allocator sizing hook in process_tick (default off)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"

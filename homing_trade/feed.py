@@ -1,5 +1,5 @@
 import requests
-from algotrading.models import Candle
+from homing_trade.models import Candle
 
 CANDLES_URL = "https://public.coindcx.com/market_data/candles"
 

@@ -1,6 +1,6 @@
 # tests/test_rsi_revert.py
-from algotrading.skills.rsi_revert import RsiRevert
-from algotrading.models import Candle, Position
+from homing_trade.skills.rsi_revert import RsiRevert
+from homing_trade.models import Candle, Position
 
 
 def candles_from(closes):

@@ -1,9 +1,9 @@
 # tests/test_engine.py
-from algotrading.engine import build_skills, process_tick, run
-from algotrading.db import Database
-from algotrading.broker import Broker
-from algotrading.config import Config
-from algotrading.models import Candle
+from homing_trade.engine import build_skills, process_tick, run
+from homing_trade.db import Database
+from homing_trade.broker import Broker
+from homing_trade.config import Config
+from homing_trade.models import Candle
 
 
 def rising_then_drop():

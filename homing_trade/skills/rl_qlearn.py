@@ -1,8 +1,8 @@
 import json
 import os
-from algotrading.skills.base import Strategy
-from algotrading.skills.indicators import ema, rsi
-from algotrading.models import Signal
+from homing_trade.skills.base import Strategy
+from homing_trade.skills.indicators import ema, rsi
+from homing_trade.models import Signal
 
 ACTIONS = ("HOLD", "ENTER_LONG", "CLOSE")
 
