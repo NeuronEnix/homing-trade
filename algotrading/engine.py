@@ -91,6 +91,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None):
                 print(f"[feed] fetch failed, skipping tick: {exc}")
                 candles = []
             if candles:
+                db.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
                 newest = str(candles[-1].time)
                 if db.get_state("last_candle_time") != newest:
                     process_tick(db, broker, skills, candles, cfg)
