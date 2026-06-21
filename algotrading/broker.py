@@ -1,4 +1,4 @@
-from algotrading.models import Position
+from algotrading.models import Candle, Position
 
 
 class Broker:
@@ -38,3 +38,19 @@ class Broker:
         if position.side == "LONG":
             return position.size * (price - position.entry_price)
         return position.size * (position.entry_price - price)
+
+    def liquidation_price(self, position: Position) -> float:
+        if position.side == "LONG":
+            return position.entry_price * (1 - 1 / position.leverage)
+        return position.entry_price * (1 + 1 / position.leverage)
+
+    def hit_stop(self, position: Position, candle: Candle) -> bool:
+        if position.side == "LONG":
+            return candle.low <= position.stop_price
+        return candle.high >= position.stop_price
+
+    def hit_liquidation(self, position: Position, candle: Candle) -> bool:
+        liq = self.liquidation_price(position)
+        if position.side == "LONG":
+            return candle.low <= liq
+        return candle.high >= liq
