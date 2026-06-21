@@ -19,10 +19,10 @@ class MaTrend(Strategy):
         fast_prev = ema(closes[:-1], self.fast)
         slow_prev = ema(closes[:-1], self.slow)
         ind = {"fast": round(fast_now, 4), "slow": round(slow_now, 4)}
-        if fast_now > slow_now and fast_now > fast_prev:
+        if fast_prev <= slow_prev and fast_now > slow_now:
             return Signal(action="LONG", confidence=0.6,
                           reason=f"EMA{self.fast} crossed above EMA{self.slow}", indicators=ind)
-        if fast_now < slow_now and fast_now < fast_prev:
+        if fast_prev >= slow_prev and fast_now < slow_now:
             return Signal(action="SHORT", confidence=0.6,
                           reason=f"EMA{self.fast} crossed below EMA{self.slow}", indicators=ind)
         return Signal(action="HOLD", reason="no crossover", indicators=ind)
