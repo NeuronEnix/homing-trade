@@ -90,6 +90,35 @@ def test_long_downgraded_to_hold_when_in_position():
     assert LlmTrader(client=c, provider=PROV).on_candle(candles(), pos).action == "HOLD"
 
 
+def test_ai_can_shorten_next_poll():
+    # configured max = 15 min, but the AI asks to re-check in 2 min
+    c = _Client({"observation": "o", "prediction": "p", "rationale": "r",
+                 "action": "hold", "confidence": 0.3, "next_check_in_min": 2})
+    clock = [1000.0]
+    t = LlmTrader(client=c, interval_min=15, provider=PROV, clock=lambda: clock[0])
+    t.on_candle(candles(), None)
+    assert t._next_interval_min == 2          # honored the AI's shorter request
+    clock[0] += 90                            # +90s, still inside the 2-min gate
+    assert t.on_candle(candles(), None).action == "HOLD"
+    assert c.messages.calls == 1
+    clock[0] += 60                            # now +150s > 2 min -> re-consults
+    t.on_candle(candles(), None)
+    assert c.messages.calls == 2
+
+
+def test_next_poll_clamped_to_max_and_floor():
+    over = _Client({"observation": "o", "prediction": "p", "rationale": "r",
+                    "action": "hold", "confidence": 0.1, "next_check_in_min": 999})
+    t = LlmTrader(client=over, interval_min=5, provider=PROV)
+    t.on_candle(candles(), None)
+    assert t._next_interval_min == 5          # capped at the configured max
+    under = _Client({"observation": "o", "prediction": "p", "rationale": "r",
+                     "action": "hold", "confidence": 0.1, "next_check_in_min": 0})
+    t2 = LlmTrader(client=under, interval_min=5, provider=PROV, min_interval_min=1)
+    t2.on_candle(candles(), None)
+    assert t2._next_interval_min == 1         # floored
+
+
 def test_resample_15m():
     cs = candles(n=30)
     r = resample(cs, 15)

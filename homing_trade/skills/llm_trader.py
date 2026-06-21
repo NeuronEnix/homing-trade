@@ -22,8 +22,9 @@ _SCHEMA = {
         "rationale": {"type": "string"},      # WHY that prediction leads to this decision
         "action": {"type": "string", "enum": ["LONG", "SHORT", "CLOSE", "HOLD"]},
         "confidence": {"type": "number"},
+        "next_check_in_min": {"type": "number"},  # how soon you want to look again
     },
-    "required": ["observation", "prediction", "rationale", "action", "confidence"],
+    "required": ["observation", "prediction", "rationale", "action", "confidence", "next_check_in_min"],
     "additionalProperties": False,
 }
 
@@ -40,7 +41,11 @@ _SYSTEM = (
     "  observation — what you actually SEE on the 1m and 15m charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
     "  rationale   — WHY that prediction leads to this action (tie observation -> prediction -> decision).\n"
-    "  action, confidence (0-1)."
+    "  action, confidence (0-1).\n"
+    "  next_check_in_min — how many minutes until you want to see the market again. You will be "
+    "re-consulted at most every 'max_check_min' minutes (given in the data), but you may request "
+    "SOONER (down to 1) when a setup is developing, a breakout looks imminent, or you hold a "
+    "position you need to watch closely. When the tape is quiet/choppy, ask for the max."
 )
 
 
@@ -87,10 +92,11 @@ class LlmTrader(Strategy):
 
     def __init__(self, model="claude-opus-4-8", interval_min=15, client=None,
                  max_tokens=500, backend="api", cli_timeout=120,
-                 pair="B-BTC_USDT", provider=None, name=None, clock=None):
+                 pair="B-BTC_USDT", provider=None, name=None, clock=None, min_interval_min=1):
         self.name = name or "llm_trader"   # per-instance so multiple brains get separate wallets
         self.model = model
-        self.interval_min = interval_min
+        self.interval_min = interval_min        # the configured MAX gap between consults
+        self.min_interval_min = min_interval_min  # floor the AI can shorten to (watch closely)
         self._client = client
         self.max_tokens = max_tokens
         self.backend = backend          # "cli" (claude headless, no key) | "api" (anthropic SDK)
@@ -99,6 +105,7 @@ class LlmTrader(Strategy):
         self._provider = provider       # callable(interval)->[Candle]; defaults to the live feed
         self._clock = clock or time.time  # WALL-CLOCK cadence — decoupled from the candle loop
         self._last_decision_ts = None
+        self._next_interval_min = interval_min  # AI sets this each consult (<= interval_min)
 
     def _get_client(self):
         if self._client is not None:
@@ -149,14 +156,15 @@ class LlmTrader(Strategy):
             "tf_1m": tf_1m,
             "tf_15m": tf_15m,
             "position": (position.side if position else "flat"),
+            "max_check_min": self.interval_min,  # ceiling for next_check_in_min
         }
 
     def on_candle(self, candles, position):
         # Cadence: consult Claude only every interval_min minutes of WALL-CLOCK time, so the
         # brain can poll faster (or slower) than the engine's candle interval. HOLD in between.
         now = self._clock()
-        if self._last_decision_ts is not None and (now - self._last_decision_ts) < self.interval_min * 60:
-            return Signal("HOLD", reason=f"waiting (next LLM check within {self.interval_min}m)")
+        if self._last_decision_ts is not None and (now - self._last_decision_ts) < self._next_interval_min * 60:
+            return Signal("HOLD", reason=f"waiting (next LLM check in ~{self._next_interval_min:g}m)")
         ctx = self._build_context(candles, position)
         user = "Decide the trade. Charts:\n" + json.dumps(ctx)
         try:
@@ -173,9 +181,16 @@ class LlmTrader(Strategy):
             obs = str(data.get("observation", ""))
             pred = str(data.get("prediction", ""))
             rat = str(data.get("rationale", data.get("reason", "")))  # back-compat with older payloads
+            # AI paces itself: it may shorten the next gap, capped at the configured max.
+            try:
+                req = float(data.get("next_check_in_min", self.interval_min))
+            except (TypeError, ValueError):
+                req = self.interval_min
+            self._next_interval_min = max(self.min_interval_min, min(req, self.interval_min))
             reason = f"LLM({self.backend}) {action}: {rat}"
             if pred:
                 reason += f" | predicts: {pred}"
+            reason += f" [recheck ~{self._next_interval_min:g}m]"
             return Signal(
                 action,
                 confidence=float(data.get("confidence", 0.5)),
@@ -183,7 +198,8 @@ class LlmTrader(Strategy):
                 indicators={"tf_1m": ctx["tf_1m"]["trend"] if ctx["tf_1m"] else "n/a",
                             "tf_15m": ctx["tf_15m"]["trend"] if ctx["tf_15m"] else "n/a"},
                 raw=raw,
-                meta={"observation": obs, "prediction": pred, "rationale": rat},
+                meta={"observation": obs, "prediction": pred, "rationale": rat,
+                      "next_check_in_min": self._next_interval_min},
             )
         except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD + error alert
             return Signal("HOLD", reason=f"llm unavailable: {exc}", error=str(exc))
