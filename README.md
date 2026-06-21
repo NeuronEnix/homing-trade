@@ -9,7 +9,7 @@ switch, and an opt-in (user-armed) live path.
 > 💸 **Paper-first. No real money. No API keys. No live orders** unless *you* deliberately
 > arm the live adapter with your own keys. This is a learning-and-research tool first.
 
-## Status — all four phases complete (180 tests)
+## Status — all four phases complete (192 tests)
 
 | Phase | What it adds |
 |-------|--------------|
@@ -26,11 +26,25 @@ Specs: `docs/specs/`. Plans: `docs/superpowers/plans/`.
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python -m homing_trade.engine     # run the paper tournament loop
+python -m homing_trade.web        # ⭐ browser dashboard + controls (runs the bot too)
+python -m homing_trade.engine     # run the paper tournament loop (headless)
 python -m homing_trade.report     # leaderboard
 python -m homing_trade.backtest --days 90        # backtest all strategies on stored history
 python -m homing_trade.daemon     # run the paper bot unattended (heartbeat + alerts)
 ```
+
+## Web dashboard
+
+`python -m homing_trade.web` opens a control center at **http://localhost:8787** (stdlib HTTP
+server — no Flask/React) and runs the engine in a background thread. Use it *instead of* the
+bare daemon (don't run both — they'd share one DB).
+
+- **Live prices** for BTC / ETH / PAXG (configurable via `price_symbols`).
+- **Every algo + AI brain**: equity, P&L %, open position, and the AI's latest
+  *saw / predicts / why* reasoning (errors flagged).
+- **Controls**: Start · Pause (stop new entries) · Resume · Stop · Reset (wipe ledger).
+- **Exit any trade** at market with one click.
+- **Logs**: recent trades + decision log, auto-refreshing every 2s.
 
 ## Risk controls & kill switch
 
@@ -136,5 +150,5 @@ timeframes beats the market. Paper-test it hard before trusting it.
 ## Tests
 
 ```bash
-python -m pytest -q     # 180 tests
+python -m pytest -q     # 192 tests
 ```

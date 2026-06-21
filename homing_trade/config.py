@@ -56,6 +56,10 @@ class Config:
     coindcx_secret_env: str = "COINDCX_API_SECRET"
     daemon_status_path: str = "data/daemon_status.json"
     daemon_backoff_seconds: int = 5
+    web_port: int = 8787
+    price_symbols: list[str] = field(
+        default_factory=lambda: ["BTCUSDT", "ETHUSDT", "PAXGUSDT"]  # shown live in the UI
+    )
 
 
 CONFIG = Config()

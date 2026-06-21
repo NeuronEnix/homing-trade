@@ -89,8 +89,14 @@ class Database:
     def __init__(self, path: str):
         if os.path.dirname(path):
             os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.conn = sqlite3.connect(path)
+        self.conn = sqlite3.connect(path, timeout=10)
         self.conn.row_factory = sqlite3.Row
+        # WAL lets the web UI read concurrently while the engine thread writes.
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=5000")
+        except sqlite3.OperationalError:
+            pass
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 

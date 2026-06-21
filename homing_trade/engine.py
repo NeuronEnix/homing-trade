@@ -83,9 +83,10 @@ def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, gua
     return True
 
 
-def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None):
+def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is_paused=None):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
+    paused = bool(is_paused and is_paused())  # when paused: manage/close existing, open nothing new
     if getattr(cfg, "allocator_enabled", False):
         perf = {s.name: recent_performance(db, s.name, cfg.allocator_lookback) for s in skills}
         weights = compute_allocations(perf)
@@ -122,7 +123,7 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None):
         elif not signal.error:
             skill._last_alerted_error = None
         # 3. act
-        if signal.action in ("LONG", "SHORT") and position is None:
+        if signal.action in ("LONG", "SHORT") and position is None and not paused:
             _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight, guard)
         elif signal.action == "CLOSE" and position is not None:
             _close_position(db, broker, skill, position, candle.close, candle, now_ms, guard)
@@ -132,7 +133,26 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None):
         db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
 
 
-def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None, should_stop=None):
+def _drain_commands(db, broker, skills, candle, commands):
+    """Execute queued manual commands (e.g. exit a trade) in the DB-owning thread."""
+    if commands is None:
+        return
+    now_ms = int(time.time() * 1000)
+    while True:
+        try:
+            cmd = commands.get_nowait()
+        except Exception:
+            break
+        if cmd.get("action") == "close":
+            sk = next((s for s in skills if s.name == cmd.get("strategy")), None)
+            if sk is not None:
+                pos = db.get_open_position(sk.name)
+                if pos is not None:
+                    _close_position(db, broker, sk, pos, candle.close, candle, now_ms)
+
+
+def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None,
+        should_stop=None, is_paused=None, commands=None):
     sleeper = sleeper or time.sleep
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
@@ -165,14 +185,16 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
             if candles:
                 db.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
                 newest = str(candles[-1].time)
+                # Manual commands from the UI (e.g. exit a trade) run here, in this thread.
+                _drain_commands(db, broker, skills, candles[-1], commands)
                 # Mechanical skills: only on a genuinely new candle (candle-driven).
                 if mech_skills and db.get_state("last_candle_time") != newest:
-                    process_tick(db, broker, mech_skills, candles, cfg, guard)
+                    process_tick(db, broker, mech_skills, candles, cfg, guard, None, is_paused)
                     db.set_state("last_candle_time", newest)
                 # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
                 # Pass the notifier so a Claude/CLI error pings Discord (deduped in process_tick).
                 if ai_traders:
-                    process_tick(db, broker, ai_traders, candles, cfg, guard, notifier)
+                    process_tick(db, broker, ai_traders, candles, cfg, guard, notifier, is_paused)
                 ai_names = {t.name for t in ai_traders}
                 if notifier is not None:
                     for t in db.trades_after(last_alert_id):
