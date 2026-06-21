@@ -28,3 +28,8 @@ def test_rsi_all_gains_is_100():
 def test_rsi_all_losses_is_low():
     series = [float(i) for i in range(30, 1, -1)]  # strictly decreasing
     assert rsi(series, 14) == 0.0
+
+
+def test_rsi_flat_series_returns_50():
+    # No gains and no losses -> neutral RSI by contract
+    assert rsi([100.0] * 30, 14) == 50.0
