@@ -17,6 +17,19 @@ class Config:
     enabled_skills: list[str] = field(
         default_factory=lambda: ["ma_trend", "rsi_revert", "grid"]
     )
+    agent_mode: str = "heuristic"           # "heuristic" | "llm"
+    llm_model: str = "claude-opus-4-8"
+    rl_alpha: float = 0.1
+    rl_gamma: float = 0.95
+    rl_epsilon: float = 0.1
+    rl_fast: int = 9
+    rl_slow: int = 21
+    committee_threshold: float = 0.2
+    risk_vol_window: int = 20
+    risk_vol_threshold: float = 0.04
+    allocator_enabled: bool = False
+    allocator_lookback: int = 20
+    qtable_dir: str = "data"
 
 
 CONFIG = Config()
