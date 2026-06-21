@@ -34,13 +34,31 @@ python -m homing_trade.daemon     # run the paper bot unattended (heartbeat + al
 ## Live trading (opt-in, user-armed only)
 
 `homing_trade/live_broker.py` is a complete CoinDCX order adapter, but it is **dry-run by
-default and never wired into the automated bot**. Going live is a deliberate action *you*
-take: set your keys in the environment (`COINDCX_API_KEY` / `COINDCX_API_SECRET`), construct
-`LiveBroker(api_key=..., api_secret=..., dry_run=False)` yourself, and route signals to it.
-The paper engine and daemon never import it. Backtest → paper-prove → only then consider live.
+default and never wired into the automated bot**. The paper engine and daemon never import it.
+
+**Where your keys go.** Copy the template and fill in your CoinDCX keys — `.env` is
+gitignored, so your real keys are never committed or pushed:
+
+```bash
+cp .env.example .env        # then edit .env: paste COINDCX_API_KEY / COINDCX_API_SECRET
+```
+
+Get keys from CoinDCX → Profile → API Dashboard. **Only needed for live trading** — paper
+trading, backtesting, and the daemon need nothing here.
+
+**Arming live (a deliberate action you take):**
+
+```python
+from homing_trade.live_broker import LiveBroker
+lb = LiveBroker.from_env()                 # reads .env; dry_run=True (still simulated)
+lb = LiveBroker.from_env(dry_run=False)    # ⚠️ THIS places REAL orders with your money
+```
+
+`from_env()` defaults to `dry_run=True`, so even after adding keys nothing is live until you
+pass `dry_run=False` yourself. Backtest → paper-prove → only then consider live, small.
 
 ## Tests
 
 ```bash
-python -m pytest -q     # 128 tests
+python -m pytest -q     # 133 tests
 ```

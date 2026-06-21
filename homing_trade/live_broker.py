@@ -66,3 +66,19 @@ class LiveBroker:
         if signal.action in ("CLOSE", "SHORT"):
             return self.place_order(market, "sell", order_type, quantity, price, now_ms)
         return {"status": "noop", "action": signal.action}
+
+    @classmethod
+    def from_env(cls, cfg=None, *, dry_run=True, dotenv_path=".env",
+                 base_url="https://api.coindcx.com", poster=None):
+        """Build a LiveBroker with keys read from the environment / `.env`.
+
+        Convenience for the (deliberate) live path: keys come from COINDCX_API_KEY /
+        COINDCX_API_SECRET (or whatever `cfg` names). Defaults to dry_run=True — you must
+        pass dry_run=False yourself to place real orders.
+        """
+        from homing_trade.config import CONFIG
+        from homing_trade.dotenv import coindcx_keys
+        cfg = cfg or CONFIG
+        key, secret = coindcx_keys(cfg, dotenv_path=dotenv_path)
+        return cls(api_key=key or None, api_secret=secret or None, dry_run=dry_run,
+                   base_url=base_url, poster=poster)
