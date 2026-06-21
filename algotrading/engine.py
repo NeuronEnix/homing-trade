@@ -1,5 +1,6 @@
 # algotrading/engine.py
 import time
+from algotrading.allocator import compute_allocations, recent_performance
 from algotrading.config import CONFIG
 from algotrading.db import Database
 from algotrading.broker import Broker
@@ -36,10 +37,10 @@ def _close_position(db, broker, skill, position, exit_price, candle, now_ms):
     return balance
 
 
-def _open_position(db, broker, skill, side, candle, cfg, now_ms):
+def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0):
     entry_fill = broker.fill_price(candle.close, side, is_entry=True)
     size, margin = broker.position_size(
-        db.get_balance(skill.name), entry_fill, cfg.risk_pct, cfg.stop_pct, cfg.leverage)
+        db.get_balance(skill.name), entry_fill, cfg.risk_pct * weight, cfg.stop_pct, cfg.leverage)
     stop = broker.stop_price(entry_fill, side, cfg.stop_pct)
     fee = broker.entry_fee(size, entry_fill)
     balance = db.get_balance(skill.name) - fee
@@ -53,7 +54,13 @@ def _open_position(db, broker, skill, side, candle, cfg, now_ms):
 def process_tick(db, broker, skills, candles, cfg):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
+    if getattr(cfg, "allocator_enabled", False):
+        perf = {s.name: recent_performance(db, s.name, cfg.allocator_lookback) for s in skills}
+        weights = compute_allocations(perf)
+    else:
+        weights = {}
     for skill in skills:
+        weight = weights.get(skill.name, 1.0)
         position = db.get_open_position(skill.name)
         # 1. risk checks on existing position
         if position is not None:
@@ -70,7 +77,7 @@ def process_tick(db, broker, skills, candles, cfg):
                         signal.confidence, signal.reason, signal.indicators)
         # 3. act
         if signal.action in ("LONG", "SHORT") and position is None:
-            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms)
+            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight)
         elif signal.action == "CLOSE" and position is not None:
             _close_position(db, broker, skill, position, candle.close, candle, now_ms)
         # 4. equity snapshot
