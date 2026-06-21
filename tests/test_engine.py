@@ -46,3 +46,21 @@ def test_run_processes_one_tick_then_stops(tmp_path):
     db = Database(cfg.db_path)
     assert db.get_state("last_candle_time") == str(candles_raw[-1]["time"])
     db.close()
+
+
+def test_run_skips_already_processed_candle(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "idem.db"))
+    candles_raw = [{"open": c.open, "high": c.high, "low": c.low, "close": c.close,
+                    "volume": c.volume, "time": c.time} for c in rising_then_drop()]
+
+    def fake_fetcher(url, params):
+        return candles_raw
+
+    # Three ticks, but the fetcher always returns the SAME newest candle:
+    # only the first tick should be processed (restart-safety cursor).
+    run(cfg, fetcher=fake_fetcher, max_ticks=3, sleeper=lambda s: None)
+    db = Database(cfg.db_path)
+    count = db.conn.execute("SELECT COUNT(*) AS c FROM decision_log").fetchone()["c"]
+    # 3 skills x exactly one processed tick = 3 rows (NOT 9)
+    assert count == 3
+    db.close()
