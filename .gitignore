@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Data / runtime
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Secrets (no API keys committed, ever)
+.env
+secrets.*
+
+# OS
+.DS_Store
