@@ -1,5 +1,6 @@
 import json
-from homing_trade.skills.llm_trader import LlmTrader, resample
+import subprocess
+from homing_trade.skills.llm_trader import LlmTrader, resample, _extract_json
 from homing_trade.models import Candle, Position
 
 
@@ -77,3 +78,37 @@ def test_resample_15m():
     r = resample(cs, 15)
     assert len(r) == 2
     assert r[0].open == cs[0].open and r[0].close == cs[14].close
+
+
+# --- CLI backend (claude headless, no API key) ---
+class _Proc:
+    def __init__(self, stdout, returncode=0, stderr=""):
+        self.stdout = stdout
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def _cli_envelope(result_text, is_error=False):
+    return json.dumps({"type": "result", "is_error": is_error, "result": result_text})
+
+
+def test_cli_backend_parses_decision(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        return _Proc(_cli_envelope('Here you go: {"action":"short","confidence":0.7,"reason":"bearish"}'))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    sig = LlmTrader(backend="cli").on_candle(candles(), None)
+    assert sig.action == "SHORT" and sig.confidence == 0.7
+    assert captured["cmd"][0] == "claude" and "-p" in captured["cmd"]
+
+
+def test_cli_backend_error_holds(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: _Proc("", returncode=1, stderr="boom"))
+    assert LlmTrader(backend="cli").on_candle(candles(), None).action == "HOLD"
+
+
+def test_extract_json_from_prose():
+    assert _extract_json('blah {"action":"HOLD"} trailing')["action"] == "HOLD"

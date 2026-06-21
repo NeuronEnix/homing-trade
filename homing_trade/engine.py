@@ -46,7 +46,8 @@ def build_skills(names, cfg=None):
                                     threshold=cfg.committee_threshold))
         elif cfg is not None and n == "llm_trader":
             skills.append(LlmTrader(model=cfg.llm_model,
-                                    interval_min=getattr(cfg, "llm_interval_min", 15)))
+                                    interval_min=getattr(cfg, "llm_interval_min", 15),
+                                    backend=getattr(cfg, "llm_backend", "cli")))
         else:
             skills.append(_SKILL_FACTORY[n]())
     return skills

@@ -53,6 +53,14 @@ def _tf_summary(closes, candles):
     }
 
 
+def _extract_json(text):
+    """Pull the first {...} JSON object out of an LLM's text reply."""
+    s, e = text.find("{"), text.rfind("}")
+    if s == -1 or e == -1 or e < s:
+        raise ValueError("no JSON object in LLM response")
+    return json.loads(text[s:e + 1])
+
+
 def resample(candles, factor):
     """Aggregate 1m candles into `factor`-minute OHLC candles (oldest-first preserved)."""
     out = []
@@ -69,11 +77,14 @@ def resample(candles, factor):
 class LlmTrader(Strategy):
     name = "llm_trader"
 
-    def __init__(self, model="claude-opus-4-8", interval_min=15, client=None, max_tokens=500):
+    def __init__(self, model="claude-opus-4-8", interval_min=15, client=None,
+                 max_tokens=500, backend="api", cli_timeout=120):
         self.model = model
         self.interval_min = interval_min
         self._client = client
         self.max_tokens = max_tokens
+        self.backend = backend          # "cli" (claude headless, no key) | "api" (anthropic SDK)
+        self.cli_timeout = cli_timeout
         self._last_decision_time = None
 
     def _get_client(self):
@@ -82,6 +93,32 @@ class LlmTrader(Strategy):
         import anthropic  # lazy — only needed when actually consulting Claude
         self._client = anthropic.Anthropic()
         return self._client
+
+    def _decide_via_api(self, user):
+        client = self._get_client()
+        resp = client.messages.create(
+            model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
+            output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
+            messages=[{"role": "user", "content": user}],
+        )
+        text = next(b.text for b in resp.content if getattr(b, "type", None) == "text")
+        return _extract_json(text)
+
+    def _decide_via_cli(self, user):
+        """Shell out to the local `claude` CLI (headless) — uses existing Claude Code
+        auth, no API key. Heavier per call (~Claude Code system context) but no extra billing."""
+        import subprocess
+        prompt = f"{_SYSTEM}\n\n{user}\n\nRespond with ONLY the JSON object, no prose."
+        cmd = ["claude", "-p", prompt, "--output-format", "json"]
+        if self.model:
+            cmd += ["--model", self.model]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.cli_timeout)
+        if proc.returncode != 0:
+            raise RuntimeError(f"claude cli rc={proc.returncode}: {proc.stderr[:200]}")
+        env = json.loads(proc.stdout)
+        if env.get("is_error"):
+            raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:200]}")
+        return _extract_json(str(env.get("result", "")))
 
     def _build_context(self, candles, position):
         closes_1m = [c.close for c in candles]
@@ -101,18 +138,11 @@ class LlmTrader(Strategy):
             if elapsed < self.interval_min:
                 return Signal("HOLD", reason=f"waiting {elapsed:.0f}/{self.interval_min}m to next LLM check")
         ctx = self._build_context(candles, position)
+        user = "Decide the trade. Charts:\n" + json.dumps(ctx)
         try:
-            client = self._get_client()
-            resp = client.messages.create(
-                model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
-                output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
-                messages=[{"role": "user", "content": "Decide the trade. Charts:\n" + json.dumps(ctx)}],
-            )
-            text = next(b.text for b in resp.content if getattr(b, "type", None) == "text")
-            data = json.loads(text)
+            data = self._decide_via_cli(user) if self.backend == "cli" else self._decide_via_api(user)
             self._last_decision_time = cur.time
             action = str(data["action"]).upper()
-            is_long = position is not None and position.side == "LONG"
             # guard the mapping so the engine never gets an impossible action
             if action == "LONG" and position is not None:
                 action = "HOLD"
@@ -123,9 +153,9 @@ class LlmTrader(Strategy):
             return Signal(
                 action,
                 confidence=float(data.get("confidence", 0.5)),
-                reason="LLM: " + str(data.get("reason", ""))[:200],
+                reason=f"LLM({self.backend}): " + str(data.get("reason", ""))[:180],
                 indicators={"tf_1m": ctx["tf_1m"]["trend"],
                             "tf_15m": ctx["tf_15m"]["trend"] if ctx["tf_15m"] else "n/a"},
             )
-        except Exception as exc:  # missing key/package, network, bad JSON -> HOLD, never crash
+        except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD, never crash
             return Signal("HOLD", reason=f"llm unavailable: {exc}")

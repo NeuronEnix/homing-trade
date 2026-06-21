@@ -106,18 +106,23 @@ error is swallowed. Remove `HT_ALERT_MODE` to go back to terminal output (defaul
 > Telegram is also supported (`HT_ALERT_MODE=telegram` with `TELEGRAM_BOT_TOKEN` +
 > `TELEGRAM_CHAT_ID`) if you prefer it.
 
-## LLM trader — Claude decides entries (optional, costs money)
+## LLM trader — Claude decides entries (optional)
 
 `homing_trade/skills/llm_trader.py` lets **Claude read the 1-minute + 15-minute charts and
 decide *when* to trade** (LONG/SHORT/CLOSE/HOLD) — direction and timing only; size, leverage,
 and the daily risk limits stay with the engine. It consults Claude every ~15 min (cost
-control) and degrades to HOLD with no key or on any error.
+control) and degrades to HOLD on any error.
 
-Enable it in `.env` (needs an Anthropic API key — billed per decision):
+Two backends — pick in `.env`:
+- **`cli` (default):** shells out to your local `claude` CLI. **No API key** — rides your
+  Claude Code subscription. Heavier/slower per call (drags in Claude Code's system context).
+- **`api`:** Anthropic SDK. Needs `ANTHROPIC_API_KEY`; leaner/cheaper/faster per call.
+
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
-HT_SKILLS=ma_trend,rsi_revert,grid,llm_trader   # add llm_trader to the line-up
-HT_LLM_MODEL=claude-opus-4-8                     # or claude-haiku-4-5 to cut cost
+HT_SKILLS=ma_trend,rsi_revert,grid,macd,bollinger,donchian,llm_trader   # add llm_trader
+HT_LLM_BACKEND=cli              # cli (no key) | api
+HT_LLM_MODEL=claude-opus-4-8    # or claude-haiku-4-5 to cut cost
+# ANTHROPIC_API_KEY=sk-ant-...  # only for HT_LLM_BACKEND=api
 ```
 ⚠️ This is an **experiment, not a known edge** — there's no evidence an LLM reading short
 timeframes beats the market. Paper-test it hard before trusting it.
@@ -125,5 +130,5 @@ timeframes beats the market. Paper-test it hard before trusting it.
 ## Tests
 
 ```bash
-python -m pytest -q     # 161 tests
+python -m pytest -q     # 175 tests
 ```

@@ -28,6 +28,7 @@ class Config:
     agent_mode: str = "heuristic"           # "heuristic" | "llm"
     llm_model: str = "claude-opus-4-8"
     llm_interval_min: int = 15              # LlmTrader consults Claude every N minutes
+    llm_backend: str = "cli"                # "cli" (claude headless, no API key) | "api" (anthropic SDK)
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -102,6 +103,7 @@ def from_env(base=None, *, dotenv_path=".env"):
         usdt_inr_rate=_f("HT_USDT_INR", cfg.usdt_inr_rate),
         alert_mode=_s("HT_ALERT_MODE", cfg.alert_mode),
         llm_model=_s("HT_LLM_MODEL", cfg.llm_model),
+        llm_backend=_s("HT_LLM_BACKEND", cfg.llm_backend),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
