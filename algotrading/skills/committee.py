@@ -1,5 +1,5 @@
 from algotrading.skills.base import Strategy
-from algotrading.models import Candle, Position, Signal
+from algotrading.models import Signal
 from algotrading.agents.heuristic import BullAgent, BearAgent, RiskSupervisor
 
 

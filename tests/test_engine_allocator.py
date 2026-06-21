@@ -1,5 +1,5 @@
 # tests/test_engine_allocator.py
-from algotrading.engine import process_tick, build_skills
+from algotrading.engine import process_tick
 from algotrading.broker import Broker
 from algotrading.ledger import MemoryLedger
 from algotrading.config import Config
@@ -38,7 +38,7 @@ def _force_long_window2():
     return AlwaysLong2()
 
 
-def test_allocator_disabled_uses_full_risk():
+def test_allocator_weight_scaling():
     cfg = Config(allocator_enabled=False)
     led = MemoryLedger("ma_trend", 5000.0)
     broker = Broker(cfg.fee, cfg.slippage)

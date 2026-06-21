@@ -2,7 +2,7 @@ import json
 import os
 from algotrading.skills.base import Strategy
 from algotrading.skills.indicators import ema, rsi
-from algotrading.models import Candle, Position, Signal
+from algotrading.models import Signal
 
 ACTIONS = ("HOLD", "ENTER_LONG", "CLOSE")
 
@@ -80,7 +80,7 @@ class RLQLearn(Strategy):
         closes = [c.close for c in candles]
         cur_close = closes[-1]
         state = discretize(closes, position, self.fast, self.slow)
-        if self._last_state is not None and self._prev_close:
+        if self._last_state is not None and self._prev_close is not None:
             step_ret = (cur_close - self._prev_close) / self._prev_close
             reward = self._prev_long * step_ret
             self._learn(self._last_state, self._last_action, reward, state)

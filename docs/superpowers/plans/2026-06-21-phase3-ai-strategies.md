@@ -403,7 +403,7 @@ class BullAgent(Agent):
         f, s, r = ema(closes, self.fast), ema(closes, self.slow), rsi(closes, 14)
         if f is None or s is None or r is None:
             return AgentView("NEUTRAL", 0.0, "warming up")
-        if f > s and r < 70:
+        if f > s and r > 30:  # bullish in an uptrend unless deeply oversold (crash)
             conf = max(0.3, min(1.0, (f - s) / s * 50))
             return AgentView("BULLISH", conf, f"uptrend EMA{self.fast}>EMA{self.slow}, RSI {r:.0f}")
         return AgentView("NEUTRAL", 0.1, "no bullish edge")
@@ -421,7 +421,7 @@ class BearAgent(Agent):
         f, s, r = ema(closes, self.fast), ema(closes, self.slow), rsi(closes, 14)
         if f is None or s is None or r is None:
             return AgentView("NEUTRAL", 0.0, "warming up")
-        if f < s and r > 30:
+        if f < s and r < 70:  # bearish in a downtrend unless deeply overbought (squeeze)
             conf = max(0.3, min(1.0, (s - f) / s * 50))
             return AgentView("BEARISH", conf, f"downtrend EMA{self.fast}<EMA{self.slow}, RSI {r:.0f}")
         return AgentView("NEUTRAL", 0.1, "no bearish edge")
