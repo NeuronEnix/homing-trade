@@ -52,6 +52,20 @@ CREATE TABLE IF NOT EXISTS decision_log (
     reason TEXT NOT NULL,
     indicators_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS llm_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy    TEXT    NOT NULL,
+    ts          INTEGER NOT NULL,
+    backend     TEXT,
+    model       TEXT,
+    action      TEXT,
+    confidence  REAL,
+    observation TEXT,    -- what the model saw on the 1m + 15m charts
+    prediction  TEXT,    -- what it expects price to do next
+    rationale   TEXT,    -- why that leads to the decision
+    raw         TEXT,    -- full raw model response (envelope/text)
+    error       TEXT     -- error message if the model call failed
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -146,6 +160,32 @@ class Database:
             (strategy, ts, candle_time, action, confidence, reason, json.dumps(indicators)),
         )
         self.conn.commit()
+
+    def record_llm_response(self, strategy, ts, backend, model, action, confidence,
+                            observation, prediction, rationale, raw, error) -> None:
+        self.conn.execute(
+            """INSERT INTO llm_responses(strategy, ts, backend, model, action, confidence,
+                                         observation, prediction, rationale, raw, error)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (strategy, ts, backend, model, action, confidence,
+             observation, prediction, rationale, raw, error),
+        )
+        self.conn.commit()
+
+    def recent_llm_responses(self, strategy=None, limit=20):
+        if strategy is not None:
+            return self.conn.execute(
+                "SELECT * FROM llm_responses WHERE strategy=? ORDER BY id DESC LIMIT ?",
+                (strategy, limit)).fetchall()
+        return self.conn.execute(
+            "SELECT * FROM llm_responses ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def latest_llm_rationale(self, strategy):
+        """Most recent rationale for a strategy (for enriching trade alerts); '' if none."""
+        row = self.conn.execute(
+            "SELECT rationale FROM llm_responses WHERE strategy=? AND error IS NULL "
+            "ORDER BY id DESC LIMIT 1", (strategy,)).fetchone()
+        return (row["rationale"] or "") if row else ""
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()

@@ -83,7 +83,7 @@ def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, gua
     return True
 
 
-def process_tick(db, broker, skills, candles, cfg, guard=None):
+def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
     if getattr(cfg, "allocator_enabled", False):
@@ -107,6 +107,20 @@ def process_tick(db, broker, skills, candles, cfg, guard=None):
         signal = skill.on_candle(candles, position)
         db.log_decision(skill.name, now_ms, candle.time, signal.action,
                         signal.confidence, signal.reason, signal.indicators)
+        # 2b. persist the full AI response + reasoning (only on a real consult or an error)
+        if signal.raw or signal.error:
+            m = signal.meta or {}
+            db.record_llm_response(skill.name, now_ms, getattr(skill, "backend", ""),
+                                   getattr(skill, "model", ""), signal.action, signal.confidence,
+                                   m.get("observation", ""), m.get("prediction", ""),
+                                   m.get("rationale", ""), signal.raw or "", signal.error or "")
+        # 2c. alert on an AI error (deduped so a persistent failure doesn't spam Discord)
+        if signal.error and notifier is not None:
+            if getattr(skill, "_last_alerted_error", None) != signal.error:
+                notifier.notify("error", f"{skill.name} — Claude error", signal.error[:400])
+                skill._last_alerted_error = signal.error
+        elif not signal.error:
+            skill._last_alerted_error = None
         # 3. act
         if signal.action in ("LONG", "SHORT") and position is None:
             _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight, guard)
@@ -154,12 +168,18 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                     process_tick(db, broker, mech_skills, candles, cfg, guard)
                     db.set_state("last_candle_time", newest)
                 # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
+                # Pass the notifier so a Claude/CLI error pings Discord (deduped in process_tick).
                 if ai_traders:
-                    process_tick(db, broker, ai_traders, candles, cfg, guard)
+                    process_tick(db, broker, ai_traders, candles, cfg, guard, notifier)
+                ai_names = {t.name for t in ai_traders}
                 if notifier is not None:
                     for t in db.trades_after(last_alert_id):
-                        notifier.notify("trade", f"{t['strategy']} {t['action']}",
-                                        f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}")
+                        msg = f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}"
+                        if t["strategy"] in ai_names:   # show WHY for AI trades
+                            why = db.latest_llm_rationale(t["strategy"])
+                            if why:
+                                msg += f"\n💡 {why[:280]}"
+                        notifier.notify("trade", f"{t['strategy']} {t['action']}", msg)
                         last_alert_id = t["id"]
                 # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
                 if guard is not None and guard.halted_reason:

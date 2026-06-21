@@ -61,9 +61,21 @@ def test_cadence_holds_without_new_call():
     assert c.messages.calls == calls + 1
 
 
-def test_no_client_holds():
-    sig = LlmTrader(provider=PROV).on_candle(candles(), None)  # anthropic not installed -> HOLD
+def test_no_client_holds_and_sets_error():
+    sig = LlmTrader(provider=PROV).on_candle(candles(), None)  # no client/anthropic -> HOLD + error
     assert sig.action == "HOLD" and "llm unavailable" in sig.reason
+    assert sig.error is not None   # surfaced so the engine can alert Discord
+
+
+def test_captures_observation_prediction_rationale():
+    c = _Client({"observation": "15m up, 1m up", "prediction": "continues up",
+                 "rationale": "trend aligned", "action": "long", "confidence": 0.7})
+    sig = LlmTrader(client=c, provider=PROV).on_candle(candles(), None)
+    assert sig.action == "LONG"
+    assert sig.meta["observation"] == "15m up, 1m up"
+    assert sig.meta["prediction"] == "continues up"
+    assert sig.meta["rationale"] == "trend aligned"
+    assert sig.raw is not None        # full response persisted
 
 
 def test_close_downgraded_to_hold_when_flat():

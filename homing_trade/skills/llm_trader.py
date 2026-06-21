@@ -17,11 +17,13 @@ from homing_trade.models import Candle, Signal
 _SCHEMA = {
     "type": "object",
     "properties": {
+        "observation": {"type": "string"},   # what you SEE on the 1m + 15m charts
+        "prediction": {"type": "string"},     # what you PREDICT price will do next
+        "rationale": {"type": "string"},      # WHY that prediction leads to this decision
         "action": {"type": "string", "enum": ["LONG", "SHORT", "CLOSE", "HOLD"]},
         "confidence": {"type": "number"},
-        "reason": {"type": "string"},
     },
-    "required": ["action", "confidence", "reason"],
+    "required": ["observation", "prediction", "rationale", "action", "confidence"],
     "additionalProperties": False,
 }
 
@@ -33,7 +35,12 @@ _SYSTEM = (
     "to fade, or a clean breakout with expanding volatility. Avoid choppy, low-volatility, or "
     "conflicting tapes — they bleed fees, especially at high leverage. LONG only when flat and "
     "bullish; SHORT only when flat and bearish; CLOSE to exit an open position when the thesis "
-    "is gone. Respond ONLY with the JSON schema."
+    "is gone.\n\n"
+    "Respond ONLY with the JSON schema, and be concrete:\n"
+    "  observation — what you actually SEE on the 1m and 15m charts (trend, EMAs, RSI, volatility).\n"
+    "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
+    "  rationale   — WHY that prediction leads to this action (tie observation -> prediction -> decision).\n"
+    "  action, confidence (0-1)."
 )
 
 
@@ -101,6 +108,7 @@ class LlmTrader(Strategy):
         return self._client
 
     def _decide_via_api(self, user):
+        """Return (decision_dict, raw_text)."""
         client = self._get_client()
         resp = client.messages.create(
             model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
@@ -108,11 +116,11 @@ class LlmTrader(Strategy):
             messages=[{"role": "user", "content": user}],
         )
         text = next(b.text for b in resp.content if getattr(b, "type", None) == "text")
-        return _extract_json(text)
+        return _extract_json(text), text
 
     def _decide_via_cli(self, user):
-        """Shell out to the local `claude` CLI (headless) — uses existing Claude Code
-        auth, no API key. Heavier per call (~Claude Code system context) but no extra billing."""
+        """Shell out to the local `claude` CLI (headless) — uses existing Claude Code auth,
+        no API key. Returns (decision_dict, raw_envelope). Heavier per call but no extra billing."""
         import subprocess
         prompt = f"{_SYSTEM}\n\n{user}\n\nRespond with ONLY the JSON object, no prose."
         cmd = ["claude", "-p", prompt, "--output-format", "json"]
@@ -120,11 +128,11 @@ class LlmTrader(Strategy):
             cmd += ["--model", self.model]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.cli_timeout)
         if proc.returncode != 0:
-            raise RuntimeError(f"claude cli rc={proc.returncode}: {proc.stderr[:200]}")
+            raise RuntimeError(f"claude cli rc={proc.returncode}: {proc.stderr[:300]}")
         env = json.loads(proc.stdout)
         if env.get("is_error"):
-            raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:200]}")
-        return _extract_json(str(env.get("result", "")))
+            raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:300]}")
+        return _extract_json(str(env.get("result", ""))), proc.stdout
 
     def _provide(self, interval):
         if self._provider is not None:
@@ -152,7 +160,7 @@ class LlmTrader(Strategy):
         ctx = self._build_context(candles, position)
         user = "Decide the trade. Charts:\n" + json.dumps(ctx)
         try:
-            data = self._decide_via_cli(user) if self.backend == "cli" else self._decide_via_api(user)
+            data, raw = self._decide_via_cli(user) if self.backend == "cli" else self._decide_via_api(user)
             self._last_decision_ts = now
             action = str(data["action"]).upper()
             # guard the mapping so the engine never gets an impossible action
@@ -162,12 +170,20 @@ class LlmTrader(Strategy):
                 action = "HOLD"
             if action not in ("LONG", "SHORT", "CLOSE", "HOLD"):
                 action = "HOLD"
+            obs = str(data.get("observation", ""))
+            pred = str(data.get("prediction", ""))
+            rat = str(data.get("rationale", data.get("reason", "")))  # back-compat with older payloads
+            reason = f"LLM({self.backend}) {action}: {rat}"
+            if pred:
+                reason += f" | predicts: {pred}"
             return Signal(
                 action,
                 confidence=float(data.get("confidence", 0.5)),
-                reason=f"LLM({self.backend}): " + str(data.get("reason", ""))[:180],
+                reason=reason[:400],
                 indicators={"tf_1m": ctx["tf_1m"]["trend"] if ctx["tf_1m"] else "n/a",
                             "tf_15m": ctx["tf_15m"]["trend"] if ctx["tf_15m"] else "n/a"},
+                raw=raw,
+                meta={"observation": obs, "prediction": pred, "rationale": rat},
             )
-        except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD, never crash
-            return Signal("HOLD", reason=f"llm unavailable: {exc}")
+        except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD + error alert
+            return Signal("HOLD", reason=f"llm unavailable: {exc}", error=str(exc))

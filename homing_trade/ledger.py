@@ -50,6 +50,12 @@ class MemoryLedger:
     def log_decision(self, *args, **kwargs):
         pass
 
+    def record_llm_response(self, *args, **kwargs):
+        pass
+
+    def latest_llm_rationale(self, strategy):
+        return ""
+
     def recent_close_pnls(self, strategy, limit):
         closes = [t["pnl"] for t in self.trades
                   if t["strategy"] == strategy and t["action"] == "CLOSE"]

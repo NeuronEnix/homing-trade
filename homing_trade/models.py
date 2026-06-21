@@ -17,6 +17,9 @@ class Signal:
     confidence: float = 0.0
     reason: str = ""
     indicators: dict = field(default_factory=dict)
+    error: str | None = None    # set by AI strategies when the model call fails (-> Discord alert)
+    raw: str | None = None      # full raw model response (persisted for the audit trail)
+    meta: dict | None = None     # structured AI reasoning: observation / prediction / rationale
 
 
 @dataclass
