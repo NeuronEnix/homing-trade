@@ -14,11 +14,17 @@ from homing_trade.skills.grid import Grid
 from homing_trade.skills.rl_qlearn import RLQLearn
 from homing_trade.skills.committee import Committee, build_agents
 from homing_trade.skills.llm_trader import LlmTrader
+from homing_trade.skills.macd import MacdCross
+from homing_trade.skills.bollinger import BollingerRevert
+from homing_trade.skills.donchian import DonchianBreakout
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
     "rsi_revert": RsiRevert,
     "grid": Grid,
+    "macd": MacdCross,
+    "bollinger": BollingerRevert,
+    "donchian": DonchianBreakout,
     "rl_qlearn": RLQLearn,
     "committee": Committee,
     "llm_trader": LlmTrader,

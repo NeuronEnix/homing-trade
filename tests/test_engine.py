@@ -20,7 +20,8 @@ def test_build_skills_returns_three():
 
 
 def test_process_tick_persists_decisions(tmp_path):
-    cfg = Config(db_path=str(tmp_path / "e.db"))
+    cfg = Config(db_path=str(tmp_path / "e.db"),
+                 enabled_skills=["ma_trend", "rsi_revert", "grid"])
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
     skills = build_skills(cfg.enabled_skills)
@@ -49,7 +50,8 @@ def test_run_processes_one_tick_then_stops(tmp_path):
 
 
 def test_run_skips_already_processed_candle(tmp_path):
-    cfg = Config(db_path=str(tmp_path / "idem.db"))
+    cfg = Config(db_path=str(tmp_path / "idem.db"),
+                 enabled_skills=["ma_trend", "rsi_revert", "grid"])
     candles_raw = [{"open": c.open, "high": c.high, "low": c.low, "close": c.close,
                     "volume": c.volume, "time": c.time} for c in rising_then_drop()]
 

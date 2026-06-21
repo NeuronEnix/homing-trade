@@ -38,7 +38,11 @@ def _fetch_span(db, pair, interval, span_start, span_end, step, fetcher):
             return
         candles = parse_candles(raw)
         if not candles:
-            break
+            # No data this far back (CoinDCX serves only recent history for some pairs).
+            # Probe forward in ~200-candle windows instead of giving up, so we still fetch
+            # whatever recent history IS available.
+            cursor += step * 200
+            continue
         db.save_candles(pair, interval, candles, source="history")
         last_time = candles[-1].time
         if last_time < cursor:  # no forward progress; stop to avoid an infinite loop

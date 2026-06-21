@@ -23,7 +23,7 @@ class Config:
     stop_pct: float = 0.02    # stop distance as fraction of entry price
     db_path: str = "data/paper_trading.db"
     enabled_skills: list[str] = field(
-        default_factory=lambda: ["ma_trend", "rsi_revert", "grid"]
+        default_factory=lambda: ["ma_trend", "rsi_revert", "grid", "macd", "bollinger", "donchian"]
     )
     agent_mode: str = "heuristic"           # "heuristic" | "llm"
     llm_model: str = "claude-opus-4-8"
