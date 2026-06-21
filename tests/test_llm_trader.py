@@ -9,6 +9,10 @@ def candles(n=60, start=1000, step=60000, price=64000.0):
                    time=start + i * step) for i in range(n)]
 
 
+def PROV(interval):  # multi-timeframe provider stub — no network in tests
+    return candles()
+
+
 class _Block:
     type = "text"
     def __init__(self, t):
@@ -36,7 +40,7 @@ class _Client:
 
 def test_long_when_flat():
     c = _Client({"action": "long", "confidence": 0.8, "reason": "aligned uptrend"})
-    t = LlmTrader(client=c, interval_min=15)
+    t = LlmTrader(client=c, interval_min=15, provider=PROV)
     sig = t.on_candle(candles(), None)
     assert sig.action == "LONG" and sig.confidence == 0.8
     assert c.messages.calls == 1
@@ -45,7 +49,7 @@ def test_long_when_flat():
 
 def test_cadence_holds_without_new_call():
     c = _Client({"action": "long", "confidence": 0.8, "reason": "x"})
-    t = LlmTrader(client=c, interval_min=15)
+    t = LlmTrader(client=c, interval_min=15, provider=PROV)
     cs = candles()
     t.on_candle(cs, None)
     calls = c.messages.calls
@@ -57,20 +61,20 @@ def test_cadence_holds_without_new_call():
 
 
 def test_no_client_holds():
-    sig = LlmTrader().on_candle(candles(), None)  # anthropic not installed -> HOLD
+    sig = LlmTrader(provider=PROV).on_candle(candles(), None)  # anthropic not installed -> HOLD
     assert sig.action == "HOLD" and "llm unavailable" in sig.reason
 
 
 def test_close_downgraded_to_hold_when_flat():
     c = _Client({"action": "close", "confidence": 0.5, "reason": "x"})
-    assert LlmTrader(client=c).on_candle(candles(), None).action == "HOLD"
+    assert LlmTrader(client=c, provider=PROV).on_candle(candles(), None).action == "HOLD"
 
 
 def test_long_downgraded_to_hold_when_in_position():
     pos = Position(strategy="llm_trader", side="LONG", entry_price=64000, size=1,
                    leverage=15, margin=1, stop_price=63000, opened_at=0)
     c = _Client({"action": "long", "confidence": 0.5, "reason": "x"})
-    assert LlmTrader(client=c).on_candle(candles(), pos).action == "HOLD"
+    assert LlmTrader(client=c, provider=PROV).on_candle(candles(), pos).action == "HOLD"
 
 
 def test_resample_15m():
@@ -100,14 +104,14 @@ def test_cli_backend_parses_decision(monkeypatch):
         return _Proc(_cli_envelope('Here you go: {"action":"short","confidence":0.7,"reason":"bearish"}'))
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    sig = LlmTrader(backend="cli").on_candle(candles(), None)
+    sig = LlmTrader(backend="cli", provider=PROV).on_candle(candles(), None)
     assert sig.action == "SHORT" and sig.confidence == 0.7
     assert captured["cmd"][0] == "claude" and "-p" in captured["cmd"]
 
 
 def test_cli_backend_error_holds(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: _Proc("", returncode=1, stderr="boom"))
-    assert LlmTrader(backend="cli").on_candle(candles(), None).action == "HOLD"
+    assert LlmTrader(backend="cli", provider=PROV).on_candle(candles(), None).action == "HOLD"
 
 
 def test_extract_json_from_prose():

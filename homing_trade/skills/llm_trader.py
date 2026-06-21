@@ -78,13 +78,16 @@ class LlmTrader(Strategy):
     name = "llm_trader"
 
     def __init__(self, model="claude-opus-4-8", interval_min=15, client=None,
-                 max_tokens=500, backend="api", cli_timeout=120):
+                 max_tokens=500, backend="api", cli_timeout=120,
+                 pair="B-BTC_USDT", provider=None):
         self.model = model
         self.interval_min = interval_min
         self._client = client
         self.max_tokens = max_tokens
         self.backend = backend          # "cli" (claude headless, no key) | "api" (anthropic SDK)
         self.cli_timeout = cli_timeout
+        self.pair = pair
+        self._provider = provider       # callable(interval)->[Candle]; defaults to the live feed
         self._last_decision_time = None
 
     def _get_client(self):
@@ -120,12 +123,19 @@ class LlmTrader(Strategy):
             raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:200]}")
         return _extract_json(str(env.get("result", "")))
 
+    def _provide(self, interval):
+        if self._provider is not None:
+            return self._provider(interval)
+        from homing_trade.feed import get_candles
+        return get_candles(self.pair, interval, limit=120)
+
     def _build_context(self, candles, position):
-        closes_1m = [c.close for c in candles]
-        c15 = resample(candles, 15)
+        c1 = self._provide("1m")
+        c15 = self._provide("15m")
+        tf_1m = _tf_summary([c.close for c in c1], c1) if len(c1) >= 21 else None
         tf_15m = _tf_summary([c.close for c in c15], c15) if len(c15) >= 21 else None
         return {
-            "tf_1m": _tf_summary(closes_1m, candles),
+            "tf_1m": tf_1m,
             "tf_15m": tf_15m,
             "position": (position.side if position else "flat"),
         }
@@ -154,7 +164,7 @@ class LlmTrader(Strategy):
                 action,
                 confidence=float(data.get("confidence", 0.5)),
                 reason=f"LLM({self.backend}): " + str(data.get("reason", ""))[:180],
-                indicators={"tf_1m": ctx["tf_1m"]["trend"],
+                indicators={"tf_1m": ctx["tf_1m"]["trend"] if ctx["tf_1m"] else "n/a",
                             "tf_15m": ctx["tf_15m"]["trend"] if ctx["tf_15m"] else "n/a"},
             )
         except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD, never crash
