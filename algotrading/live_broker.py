@@ -5,9 +5,14 @@ import json
 ORDER_PATH = "/exchange/v1/orders/create"
 
 
+def _canonical(body):
+    """Canonical JSON serialization for HMAC signature and wire bytes."""
+    return json.dumps(body, separators=(",", ":"))
+
+
 def sign(secret, body):
-    payload = json.dumps(body, separators=(",", ":"))
-    return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(secret.encode("utf-8"), _canonical(body).encode("utf-8"),
+                    hashlib.sha256).hexdigest()
 
 
 def build_order_payload(market, side, order_type, quantity, price, now_ms):
@@ -23,8 +28,7 @@ def build_order_payload(market, side, order_type, quantity, price, now_ms):
 
 def _requests_poster(url, headers, body):
     import requests
-    resp = requests.post(url, headers=headers,
-                         data=json.dumps(body, separators=(",", ":")), timeout=10)
+    resp = requests.post(url, headers=headers, data=_canonical(body), timeout=10)
     resp.raise_for_status()
     return resp.json()
 

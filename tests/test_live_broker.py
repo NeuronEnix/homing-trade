@@ -46,13 +46,15 @@ def test_live_path_signs_and_posts():
 
 
 def test_live_path_requires_keys():
-    lb = LiveBroker(dry_run=False, poster=lambda u, h, b: {})
     with pytest.raises(ValueError):
-        lb.place_order("BTCINR", "buy", "market_order", 0.001, 0.0, 1)
+        LiveBroker(dry_run=False, poster=lambda u, h, b: {}).place_order("BTCINR", "buy", "market_order", 0.001, 0.0, 1)
+    with pytest.raises(ValueError):  # empty-string keys also refused
+        LiveBroker(api_key="", api_secret="", dry_run=False, poster=lambda u, h, b: {}).place_order("BTCINR", "buy", "market_order", 0.001, 0.0, 1)
 
 
 def test_from_signal_maps_actions():
     lb = LiveBroker(dry_run=True)
     assert lb.from_signal(Signal("LONG"), "BTCINR", 0.001, 0.0, 1)["payload"]["side"] == "buy"
     assert lb.from_signal(Signal("CLOSE"), "BTCINR", 0.001, 0.0, 1)["payload"]["side"] == "sell"
+    assert lb.from_signal(Signal("SHORT"), "BTCINR", 0.001, 0.0, 1)["payload"]["side"] == "sell"
     assert lb.from_signal(Signal("HOLD"), "BTCINR", 0.001, 0.0, 1)["status"] == "noop"
