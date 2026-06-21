@@ -1,7 +1,7 @@
 import json
 import os
 import sqlite3
-from algotrading.models import Position
+from algotrading.models import Candle, Position
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (
@@ -55,6 +55,18 @@ CREATE TABLE IF NOT EXISTS decision_log (
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS candles (
+    pair     TEXT    NOT NULL,
+    interval TEXT    NOT NULL,
+    time     INTEGER NOT NULL,
+    open     REAL    NOT NULL,
+    high     REAL    NOT NULL,
+    low      REAL    NOT NULL,
+    close    REAL    NOT NULL,
+    volume   REAL    NOT NULL,
+    source   TEXT    NOT NULL,
+    PRIMARY KEY (pair, interval, time)
 );
 """
 
@@ -145,6 +157,48 @@ class Database:
             (key, value),
         )
         self.conn.commit()
+
+    def save_candles(self, pair, interval, candles, source) -> int:
+        rows = [(pair, interval, c.time, c.open, c.high, c.low, c.close, c.volume, source)
+                for c in candles]
+        self.conn.executemany(
+            """INSERT INTO candles(pair, interval, time, open, high, low, close, volume, source)
+               VALUES(?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(pair, interval, time) DO UPDATE SET
+                 open=excluded.open, high=excluded.high, low=excluded.low,
+                 close=excluded.close, volume=excluded.volume, source=excluded.source""",
+            rows,
+        )
+        self.conn.commit()
+        return len(rows)
+
+    def get_candles_range(self, pair, interval, start_ms, end_ms, source="all"):
+        q = ("SELECT time, open, high, low, close, volume FROM candles "
+             "WHERE pair=? AND interval=? AND time>=? AND time<=?")
+        params = [pair, interval, start_ms, end_ms]
+        if source != "all":
+            q += " AND source=?"
+            params.append(source)
+        q += " ORDER BY time ASC"
+        rows = self.conn.execute(q, params).fetchall()
+        return [Candle(open=r["open"], high=r["high"], low=r["low"], close=r["close"],
+                       volume=r["volume"], time=r["time"]) for r in rows]
+
+    def get_candle_bounds(self, pair, interval):
+        row = self.conn.execute(
+            "SELECT MIN(time) AS mn, MAX(time) AS mx FROM candles WHERE pair=? AND interval=?",
+            (pair, interval)).fetchone()
+        if row is None or row["mn"] is None:
+            return None
+        return (int(row["mn"]), int(row["mx"]))
+
+    def count_candles(self, pair, interval, source="all") -> int:
+        q = "SELECT COUNT(*) AS c FROM candles WHERE pair=? AND interval=?"
+        params = [pair, interval]
+        if source != "all":
+            q += " AND source=?"
+            params.append(source)
+        return int(self.conn.execute(q, params).fetchone()["c"])
 
     def close(self) -> None:
         self.conn.close()
