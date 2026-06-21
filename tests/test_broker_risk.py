@@ -41,3 +41,8 @@ def test_hit_stop_short_true_when_high_breaches():
 def test_hit_liquidation_long():
     assert B.hit_liquidation(long_pos(), candle(high=100, low=66.0)) is True
     assert B.hit_liquidation(long_pos(), candle(high=100, low=70.0)) is False
+
+
+def test_hit_liquidation_short():
+    assert B.hit_liquidation(short_pos(), candle(high=134.0, low=100)) is True
+    assert B.hit_liquidation(short_pos(), candle(high=130.0, low=100)) is False
