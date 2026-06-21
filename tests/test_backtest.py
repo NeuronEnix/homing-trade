@@ -2,6 +2,7 @@
 from algotrading.backtest import run_backtest
 from algotrading.config import CONFIG
 from algotrading.skills.ma_trend import MaTrend
+from algotrading.skills.rsi_revert import RsiRevert
 from algotrading.models import Candle
 
 
@@ -36,3 +37,12 @@ def test_run_backtest_flat_series_no_trades():
     candles = candles_from([100.0] * 130)
     r = run_backtest(MaTrend(), candles, CONFIG, 5000.0)
     assert r["trades"] == 0
+
+
+def test_run_backtest_produces_trades_on_oscillating_series():
+    prices = [float(p) for p in (list(range(50, 10, -1)) + list(range(10, 50))
+                                 + list(range(50, 10, -1)) + list(range(10, 50)))]
+    candles = candles_from(prices)
+    r = run_backtest(RsiRevert(), candles, CONFIG, 5000.0)
+    assert r["trades"] > 0
+    assert len(r["equity_curve"]) == len(candles)
