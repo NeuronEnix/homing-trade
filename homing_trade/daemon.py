@@ -1,6 +1,7 @@
 import json
 import os
 import signal
+import threading
 import time
 from homing_trade.config import CONFIG
 from homing_trade.notify import build_notifier
@@ -19,14 +20,18 @@ def run_daemon(cfg=CONFIG, *, notifier=None, status_path=None, run_engine=None,
                max_restarts=None, sleeper=None, now_fn=None):
     notifier = notifier or build_notifier(cfg)
     status_path = status_path or cfg.daemon_status_path
-    run_engine = run_engine or (lambda: engine_run(cfg, notifier=notifier))
-    sleeper = sleeper or time.sleep
     now_fn = now_fn or (lambda: int(time.time() * 1000))
 
-    stop = {"flag": False}
+    # SIGINT/SIGTERM set this event; the engine checks it and sleeps on it, so a signal
+    # stops the trading loop promptly instead of being ignored (which used to orphan it).
+    stop_event = threading.Event()
+    run_engine = run_engine or (lambda: engine_run(
+        cfg, notifier=notifier, should_stop=stop_event.is_set,
+        sleeper=lambda secs: stop_event.wait(secs)))
+    sleeper = sleeper or time.sleep  # supervisor restart-backoff sleep
 
     def _handler(signum, frame):
-        stop["flag"] = True
+        stop_event.set()
 
     try:
         signal.signal(signal.SIGINT, _handler)
@@ -38,7 +43,7 @@ def run_daemon(cfg=CONFIG, *, notifier=None, status_path=None, run_engine=None,
     _write_status(status_path, "running", 0, None, now_fn())
     restarts = 0
     last_error = None
-    while not stop["flag"]:
+    while not stop_event.is_set():
         try:
             run_engine()
             break  # engine returned normally (e.g. max_ticks reached) — done

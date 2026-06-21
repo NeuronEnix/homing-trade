@@ -132,7 +132,7 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None):
         db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
 
 
-def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None):
+def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None, should_stop=None):
     sleeper = sleeper or time.sleep
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
@@ -155,6 +155,8 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
     ticks = 0
     try:
         while max_ticks is None or ticks < max_ticks:
+            if should_stop is not None and should_stop():
+                break  # clean shutdown requested (e.g. SIGTERM)
             try:
                 candles = get_candles(cfg.pair_candles, cfg.interval, fetcher=fetcher)
             except Exception as exc:  # transient network/API error: skip this tick, keep looping
