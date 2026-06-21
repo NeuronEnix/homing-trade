@@ -25,6 +25,8 @@ def load_dotenv(path=".env", override=False):
                 continue
             key, _, val = line.partition("=")
             key = key.strip()
+            if " #" in val:                 # strip inline comment (whitespace + #)
+                val = val.split(" #", 1)[0]
             val = val.strip().strip('"').strip("'")
             loaded[key] = val
             if override or key not in os.environ:

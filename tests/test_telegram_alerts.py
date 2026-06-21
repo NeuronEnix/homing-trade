@@ -29,12 +29,12 @@ def test_build_notifier_telegram_reads_env(monkeypatch):
 
 
 def test_cfg_from_env_applies_alert_mode(monkeypatch):
-    monkeypatch.setenv("HOMING_ALERT_MODE", "telegram")
+    monkeypatch.setenv("HT_ALERT_MODE", "telegram")
     cfg = cfg_from_env(Config(), dotenv_path="/no/such/.env")
     assert cfg.alert_mode == "telegram"
 
 
 def test_cfg_from_env_no_override_when_unset(monkeypatch):
-    monkeypatch.delenv("HOMING_ALERT_MODE", raising=False)
+    monkeypatch.delenv("HT_ALERT_MODE", raising=False)
     cfg = cfg_from_env(Config(alert_mode="console"), dotenv_path="/no/such/.env")
     assert cfg.alert_mode == "console"

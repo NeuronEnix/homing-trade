@@ -38,19 +38,19 @@ Leverage and daily limits live in `homing_trade/risk.py` (separate from executio
 driven from `.env` — no code edits:
 
 ```bash
-HOMING_LEVERAGE=15            # leverage, clamped into [min, max]
-HOMING_LEVERAGE_MIN=1
-HOMING_LEVERAGE_MAX=15
-HOMING_MAX_TRADE_PER_DAY=0    # cap on INR notional opened per day (0 = no cap)
-HOMING_MAX_DAILY_LOSS=0       # KILL SWITCH — halt trading once the day's loss hits this (₹)
-HOMING_TRADING_ENABLED=true   # set false to STOP trading immediately
+HT_LEVERAGE=15            # leverage, clamped into [min, max]
+HT_LEVERAGE_MIN=1
+HT_LEVERAGE_MAX=15
+HT_MAX_TRADE_PER_DAY=0    # cap on INR notional opened per day (0 = no cap)
+HT_MAX_DAILY_LOSS=0       # KILL SWITCH — halt trading once the day's loss hits this (₹)
+HT_TRADING_ENABLED=true   # set false to STOP trading immediately
 ```
 
-- **Kill switch:** once realized losses in a day reach `HOMING_MAX_DAILY_LOSS`, the bot stops
+- **Kill switch:** once realized losses in a day reach `HT_MAX_DAILY_LOSS`, the bot stops
   opening trades, fires an alert, and the daemon halts. Limits reset the next day.
-- **Master switch:** `HOMING_TRADING_ENABLED=false` stops new trades immediately.
+- **Master switch:** `HT_TRADING_ENABLED=false` stops new trades immediately.
 - ⚠️ **15× is aggressive** — a ~6.7% adverse move liquidates a position. Set a sane
-  `HOMING_MAX_DAILY_LOSS` before doing anything beyond paper.
+  `HT_MAX_DAILY_LOSS` before doing anything beyond paper.
 
 ## Live trading (opt-in, user-armed only)
 
@@ -89,7 +89,7 @@ Webhooks → New Webhook**, pick the channel, then **Copy Webhook URL**. It look
 
 **2. Put it in `.env`** (gitignored — never committed):
 ```bash
-HOMING_ALERT_MODE=discord
+HT_ALERT_MODE=discord
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
@@ -101,9 +101,9 @@ python -m homing_trade.daemon
 Messages look like: **💱 grid CLOSE** — `sell 0.001 @ 6,050,000 pnl=+₹40`.
 
 Alerts never crash the bot — if Discord is unreachable, the trade still happens and the
-error is swallowed. Remove `HOMING_ALERT_MODE` to go back to terminal output (default).
+error is swallowed. Remove `HT_ALERT_MODE` to go back to terminal output (default).
 
-> Telegram is also supported (`HOMING_ALERT_MODE=telegram` with `TELEGRAM_BOT_TOKEN` +
+> Telegram is also supported (`HT_ALERT_MODE=telegram` with `TELEGRAM_BOT_TOKEN` +
 > `TELEGRAM_CHAT_ID`) if you prefer it.
 
 ## Tests

@@ -58,7 +58,7 @@ def run_daemon(cfg=CONFIG, *, notifier=None, status_path=None, run_engine=None,
 
 def cfg_from_env(cfg=CONFIG, *, dotenv_path=".env"):
     """Apply `.env` / environment overrides (leverage, daily limits, kill switch, alert
-    channel). Delegates to config.from_env so all HOMING_* vars are honored."""
+    channel). Delegates to config.from_env so all HT_* vars are honored."""
     from homing_trade.config import from_env
     return from_env(cfg, dotenv_path=dotenv_path)
 

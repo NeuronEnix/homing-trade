@@ -58,11 +58,12 @@ CONFIG = Config()
 def from_env(base=None, *, dotenv_path=".env"):
     """Return a Config with `.env` / environment overrides applied.
 
-    Reads `.env` (gitignored) then HOMING_* environment variables. Lets you tune
-    leverage and the risk limits without touching code:
-        HOMING_LEVERAGE, HOMING_LEVERAGE_MIN, HOMING_LEVERAGE_MAX,
-        HOMING_MAX_TRADE_PER_DAY, HOMING_MAX_DAILY_LOSS, HOMING_TRADING_ENABLED,
-        HOMING_ALERT_MODE, HOMING_USDT_INR.
+    Reads `.env` (gitignored) then HT_* environment variables. Lets you tune the
+    leverage band and risk limits without touching code:
+        HT_LEVERAGE_MIN, HT_LEVERAGE_MAX,
+        HT_MAX_TRADE_PER_DAY, HT_MAX_DAILY_LOSS, HT_TRADING_ENABLED,
+        HT_ALERT_MODE, HT_USDT_INR.
+    (There is no single HT_LEVERAGE — the bot trades at the max of the band.)
     """
     import os
     from dataclasses import replace
@@ -86,19 +87,17 @@ def from_env(base=None, *, dotenv_path=".env"):
 
     return replace(
         cfg,
-        leverage=_f("HOMING_LEVERAGE", cfg.leverage),
-        leverage_min=_f("HOMING_LEVERAGE_MIN", cfg.leverage_min),
-        leverage_max=_f("HOMING_LEVERAGE_MAX", cfg.leverage_max),
-        max_trade_amount_per_day=_f("HOMING_MAX_TRADE_PER_DAY", cfg.max_trade_amount_per_day),
-        max_daily_loss=_f("HOMING_MAX_DAILY_LOSS", cfg.max_daily_loss),
-        trading_enabled=_b("HOMING_TRADING_ENABLED", cfg.trading_enabled),
-        usdt_inr_rate=_f("HOMING_USDT_INR", cfg.usdt_inr_rate),
-        alert_mode=_s("HOMING_ALERT_MODE", cfg.alert_mode),
+        leverage_min=_f("HT_LEVERAGE_MIN", cfg.leverage_min),
+        leverage_max=_f("HT_LEVERAGE_MAX", cfg.leverage_max),
+        max_trade_amount_per_day=_f("HT_MAX_TRADE_PER_DAY", cfg.max_trade_amount_per_day),
+        max_daily_loss=_f("HT_MAX_DAILY_LOSS", cfg.max_daily_loss),
+        trading_enabled=_b("HT_TRADING_ENABLED", cfg.trading_enabled),
+        usdt_inr_rate=_f("HT_USDT_INR", cfg.usdt_inr_rate),
+        alert_mode=_s("HT_ALERT_MODE", cfg.alert_mode),
     )
 
 
 def effective_leverage(cfg):
-    """cfg.leverage clamped into [leverage_min, leverage_max]."""
-    lo = getattr(cfg, "leverage_min", cfg.leverage)
-    hi = getattr(cfg, "leverage_max", cfg.leverage)
-    return max(lo, min(cfg.leverage, hi))
+    """The leverage the bot trades at: the top of the configured band
+    (leverage_max), never below leverage_min."""
+    return max(getattr(cfg, "leverage_min", 1.0), getattr(cfg, "leverage_max", cfg.leverage))
