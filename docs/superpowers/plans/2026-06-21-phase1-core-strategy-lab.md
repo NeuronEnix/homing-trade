@@ -882,8 +882,10 @@ def test_warming_up_returns_hold():
 
 def test_crossover_up_returns_long():
     s = MaTrend(fast=3, slow=5)
-    # downtrend then sharp up so fast EMA crosses above slow on the last candle
-    closes = [10, 9, 8, 7, 6, 5, 4, 20, 30]
+    # steady downtrend (fast stays below slow) then a single sharp up move on the
+    # last candle so fast EMA crosses ABOVE slow exactly on that candle.
+    # Verified: fast_prev=4.0 <= slow_prev=5.0, fast_now=9.5 > slow_now=8.33.
+    closes = [10, 9, 8, 7, 6, 5, 4, 3, 15]
     sig = s.on_candle(candles_from(closes), None)
     assert sig.action == "LONG"
     assert "fast" in sig.indicators
@@ -891,7 +893,10 @@ def test_crossover_up_returns_long():
 
 def test_crossover_down_returns_short():
     s = MaTrend(fast=3, slow=5)
-    closes = [1, 2, 3, 4, 5, 6, 7, 1, 0.5]
+    # steady uptrend (fast stays above slow) then a single sharp drop on the last
+    # candle so fast EMA crosses BELOW slow exactly on that candle.
+    # Verified: fast_prev=9.0 >= slow_prev=8.0, fast_now=5.0 < slow_now=5.67.
+    closes = [3, 4, 5, 6, 7, 8, 9, 10, 1]
     sig = s.on_candle(candles_from(closes), None)
     assert sig.action == "SHORT"
 ```
