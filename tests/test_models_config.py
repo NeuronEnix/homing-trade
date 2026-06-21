@@ -23,7 +23,7 @@ def test_position_defaults():
 
 def test_config_values():
     assert CONFIG.starting_balance == 5000.0
-    assert CONFIG.leverage == 3.0
+    assert CONFIG.leverage == 15.0                 # futures default (bounded by min/max)
     assert CONFIG.fee == 0.0005
-    assert CONFIG.pair_candles == "I-BTC_INR"
+    assert CONFIG.pair_candles == "B-BTC_USDT"     # futures perpetual (no INR spot)
     assert "ma_trend" in CONFIG.enabled_skills

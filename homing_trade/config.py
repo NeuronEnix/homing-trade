@@ -3,12 +3,20 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
-    pair_candles: str = "I-BTC_INR"
+    # FUTURES ONLY — CoinDCX INR-margin futures. The contract is the USDT-quoted
+    # perpetual (B-BTC_USDT); margin/settlement is INR. No spot, no options.
+    pair_candles: str = "B-BTC_USDT"   # futures perpetual instrument
     ticker_market: str = "BTCINR"
+    usdt_inr_rate: float = 88.0        # USDT->INR (for absolute INR figures / live)
     interval: str = "1m"
     poll_seconds: int = 60
     starting_balance: float = 5000.0
-    leverage: float = 3.0
+    leverage: float = 15.0             # default 15x (futures); bounded by min/max below
+    leverage_min: float = 1.0
+    leverage_max: float = 15.0
+    max_trade_amount_per_day: float = 0.0   # 0 = no cap; INR notional opened per day
+    max_daily_loss: float = 0.0             # 0 = no kill switch; halt if day's loss >= this (INR)
+    trading_enabled: bool = True            # master switch — set False to stop trading immediately
     fee: float = 0.0005       # 0.05% per side
     slippage: float = 0.0005  # 5 bps
     risk_pct: float = 0.02    # max loss fraction of balance per trade
@@ -45,3 +53,52 @@ class Config:
 
 
 CONFIG = Config()
+
+
+def from_env(base=None, *, dotenv_path=".env"):
+    """Return a Config with `.env` / environment overrides applied.
+
+    Reads `.env` (gitignored) then HOMING_* environment variables. Lets you tune
+    leverage and the risk limits without touching code:
+        HOMING_LEVERAGE, HOMING_LEVERAGE_MIN, HOMING_LEVERAGE_MAX,
+        HOMING_MAX_TRADE_PER_DAY, HOMING_MAX_DAILY_LOSS, HOMING_TRADING_ENABLED,
+        HOMING_ALERT_MODE, HOMING_USDT_INR.
+    """
+    import os
+    from dataclasses import replace
+    from homing_trade.dotenv import load_dotenv
+    cfg = base or CONFIG
+    load_dotenv(dotenv_path)
+
+    def _f(name, cur):
+        v = os.environ.get(name)
+        return float(v) if v not in (None, "") else cur
+
+    def _b(name, cur):
+        v = os.environ.get(name)
+        if v in (None, ""):
+            return cur
+        return v.strip().lower() in ("1", "true", "yes", "on")
+
+    def _s(name, cur):
+        v = os.environ.get(name)
+        return v if v not in (None, "") else cur
+
+    return replace(
+        cfg,
+        leverage=_f("HOMING_LEVERAGE", cfg.leverage),
+        leverage_min=_f("HOMING_LEVERAGE_MIN", cfg.leverage_min),
+        leverage_max=_f("HOMING_LEVERAGE_MAX", cfg.leverage_max),
+        max_trade_amount_per_day=_f("HOMING_MAX_TRADE_PER_DAY", cfg.max_trade_amount_per_day),
+        max_daily_loss=_f("HOMING_MAX_DAILY_LOSS", cfg.max_daily_loss),
+        trading_enabled=_b("HOMING_TRADING_ENABLED", cfg.trading_enabled),
+        usdt_inr_rate=_f("HOMING_USDT_INR", cfg.usdt_inr_rate),
+        alert_mode=_s("HOMING_ALERT_MODE", cfg.alert_mode),
+    )
+
+
+def effective_leverage(cfg):
+    """cfg.leverage clamped into [leverage_min, leverage_max]."""
+    lo = getattr(cfg, "leverage_min", cfg.leverage)
+    hi = getattr(cfg, "leverage_max", cfg.leverage)
+    return max(lo, min(cfg.leverage, hi))

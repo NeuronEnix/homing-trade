@@ -1,14 +1,15 @@
 # homing-trade — Paper Trading Strategy Lab
 
-A **paper-trading** lab for crypto futures-style trading on **CoinDCX** price data.
-Multiple strategies ("skills") trade isolated **virtual ₹5,000 wallets** against live
-BTC/INR prices; a leaderboard shows which wins. Grows into a backtester, AI strategies,
-and an automation layer with an opt-in (user-armed) live path.
+A **paper-trading** lab for **CoinDCX INR-margin futures** (the BTC/USDT perpetual,
+margined in ₹ — no spot, no options). Multiple strategies ("skills") trade isolated
+**virtual ₹5,000 wallets** with **15× leverage**; a leaderboard shows which wins. Includes
+a backtester, AI strategies, an automation/alerts layer, daily risk controls + a kill
+switch, and an opt-in (user-armed) live path.
 
 > 💸 **Paper-first. No real money. No API keys. No live orders** unless *you* deliberately
 > arm the live adapter with your own keys. This is a learning-and-research tool first.
 
-## Status — all four phases complete (128 tests)
+## Status — all four phases complete (155 tests)
 
 | Phase | What it adds |
 |-------|--------------|
@@ -30,6 +31,26 @@ python -m homing_trade.report     # leaderboard
 python -m homing_trade.backtest --days 90        # backtest all strategies on stored history
 python -m homing_trade.daemon     # run the paper bot unattended (heartbeat + alerts)
 ```
+
+## Risk controls & kill switch
+
+Leverage and daily limits live in `homing_trade/risk.py` (separate from execution) and are
+driven from `.env` — no code edits:
+
+```bash
+HOMING_LEVERAGE=15            # leverage, clamped into [min, max]
+HOMING_LEVERAGE_MIN=1
+HOMING_LEVERAGE_MAX=15
+HOMING_MAX_TRADE_PER_DAY=0    # cap on INR notional opened per day (0 = no cap)
+HOMING_MAX_DAILY_LOSS=0       # KILL SWITCH — halt trading once the day's loss hits this (₹)
+HOMING_TRADING_ENABLED=true   # set false to STOP trading immediately
+```
+
+- **Kill switch:** once realized losses in a day reach `HOMING_MAX_DAILY_LOSS`, the bot stops
+  opening trades, fires an alert, and the daemon halts. Limits reset the next day.
+- **Master switch:** `HOMING_TRADING_ENABLED=false` stops new trades immediately.
+- ⚠️ **15× is aggressive** — a ~6.7% adverse move liquidates a position. Set a sane
+  `HOMING_MAX_DAILY_LOSS` before doing anything beyond paper.
 
 ## Live trading (opt-in, user-armed only)
 
@@ -88,5 +109,5 @@ error is swallowed. Remove `HOMING_ALERT_MODE` to go back to terminal output (de
 ## Tests
 
 ```bash
-python -m pytest -q     # 141 tests
+python -m pytest -q     # 155 tests
 ```

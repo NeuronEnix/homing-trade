@@ -2,7 +2,8 @@
 import os
 import time
 from homing_trade.allocator import compute_allocations, recent_performance
-from homing_trade.config import CONFIG
+from homing_trade.config import CONFIG, effective_leverage
+from homing_trade.risk import DailyRiskGuard
 from homing_trade.db import Database
 from homing_trade.broker import Broker
 from homing_trade.feed import get_candles
@@ -40,7 +41,7 @@ def build_skills(names, cfg=None):
     return skills
 
 
-def _close_position(db, broker, skill, position, exit_price, candle, now_ms):
+def _close_position(db, broker, skill, position, exit_price, candle, now_ms, guard=None):
     exit_fill = broker.fill_price(exit_price, position.side, is_entry=False)
     pnl = broker.realized_pnl(position, exit_fill)
     fee = broker.entry_fee(position.size, exit_fill)
@@ -49,24 +50,33 @@ def _close_position(db, broker, skill, position, exit_price, candle, now_ms):
     db.close_position(position.id)
     db.record_trade(skill.name, position.id, position.side, "CLOSE", exit_fill,
                     position.size, fee, pnl - fee, now_ms)
+    if guard is not None:
+        guard.record_close(pnl - fee, now_ms)
     return balance
 
 
-def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0):
+def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, guard=None):
+    lev = effective_leverage(cfg)
     entry_fill = broker.fill_price(candle.close, side, is_entry=True)
     size, margin = broker.position_size(
-        db.get_balance(skill.name), entry_fill, cfg.risk_pct * weight, cfg.stop_pct, cfg.leverage)
+        db.get_balance(skill.name), entry_fill, cfg.risk_pct * weight, cfg.stop_pct, lev)
+    if guard is not None:
+        ok, _reason = guard.can_open(size * entry_fill, now_ms)
+        if not ok:
+            return False  # blocked by daily risk limits / kill switch
+        guard.record_open(size * entry_fill, now_ms)
     stop = broker.stop_price(entry_fill, side, cfg.stop_pct)
     fee = broker.entry_fee(size, entry_fill)
     balance = db.get_balance(skill.name) - fee
     db.set_balance(skill.name, balance)
     pos = Position(strategy=skill.name, side=side, entry_price=entry_fill, size=size,
-                   leverage=cfg.leverage, margin=margin, stop_price=stop, opened_at=candle.time)
+                   leverage=lev, margin=margin, stop_price=stop, opened_at=candle.time)
     pid = db.open_position(pos)
     db.record_trade(skill.name, pid, side, "OPEN", entry_fill, size, fee, -fee, now_ms)
+    return True
 
 
-def process_tick(db, broker, skills, candles, cfg):
+def process_tick(db, broker, skills, candles, cfg, guard=None):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
     if getattr(cfg, "allocator_enabled", False):
@@ -92,9 +102,9 @@ def process_tick(db, broker, skills, candles, cfg):
                         signal.confidence, signal.reason, signal.indicators)
         # 3. act
         if signal.action in ("LONG", "SHORT") and position is None:
-            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight)
+            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight, guard)
         elif signal.action == "CLOSE" and position is not None:
-            _close_position(db, broker, skill, position, candle.close, candle, now_ms)
+            _close_position(db, broker, skill, position, candle.close, candle, now_ms, guard)
         # 4. equity snapshot
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
@@ -112,6 +122,11 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
     if notifier is not None:
         _row = db.conn.execute("SELECT MAX(id) AS m FROM trades").fetchone()
         last_alert_id = _row["m"] or 0
+    # Risk guard is active only when limits are configured; otherwise None (no overhead).
+    guard = None
+    if (getattr(cfg, "max_daily_loss", 0) > 0 or getattr(cfg, "max_trade_amount_per_day", 0) > 0
+            or not getattr(cfg, "trading_enabled", True)):
+        guard = DailyRiskGuard.from_config(cfg)
     ticks = 0
     try:
         while max_ticks is None or ticks < max_ticks:
@@ -124,13 +139,19 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                 db.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
                 newest = str(candles[-1].time)
                 if db.get_state("last_candle_time") != newest:
-                    process_tick(db, broker, skills, candles, cfg)
+                    process_tick(db, broker, skills, candles, cfg, guard)
                     db.set_state("last_candle_time", newest)
                     if notifier is not None:
                         for t in db.trades_after(last_alert_id):
                             notifier.notify("trade", f"{t['strategy']} {t['action']}",
                                             f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}")
                             last_alert_id = t["id"]
+                    # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
+                    if guard is not None and guard.halted_reason:
+                        if notifier is not None:
+                            notifier.notify("error", "risk halt", guard.halted_reason)
+                        print(f"[risk] halting: {guard.halted_reason}")
+                        break
             ticks += 1
             if max_ticks is None or ticks < max_ticks:
                 sleeper(cfg.poll_seconds)
