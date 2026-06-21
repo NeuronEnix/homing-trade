@@ -49,3 +49,8 @@ class MemoryLedger:
 
     def log_decision(self, *args, **kwargs):
         pass
+
+    def recent_close_pnls(self, strategy, limit):
+        closes = [t["pnl"] for t in self.trades
+                  if t["strategy"] == strategy and t["action"] == "CLOSE"]
+        return list(reversed(closes))[:limit]

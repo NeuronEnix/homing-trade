@@ -200,5 +200,11 @@ class Database:
             params.append(source)
         return int(self.conn.execute(q, params).fetchone()["c"])
 
+    def recent_close_pnls(self, strategy, limit):
+        rows = self.conn.execute(
+            "SELECT pnl FROM trades WHERE strategy=? AND action='CLOSE' ORDER BY id DESC LIMIT ?",
+            (strategy, limit)).fetchall()
+        return [float(r["pnl"]) for r in rows]
+
     def close(self) -> None:
         self.conn.close()
