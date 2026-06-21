@@ -27,6 +27,7 @@ class Config:
     )
     agent_mode: str = "heuristic"           # "heuristic" | "llm"
     llm_model: str = "claude-opus-4-8"
+    llm_interval_min: int = 15              # LlmTrader consults Claude every N minutes
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -85,6 +86,12 @@ def from_env(base=None, *, dotenv_path=".env"):
         v = os.environ.get(name)
         return v if v not in (None, "") else cur
 
+    def _list(name, cur):
+        v = os.environ.get(name)
+        if v in (None, ""):
+            return cur
+        return [s.strip() for s in v.split(",") if s.strip()]
+
     return replace(
         cfg,
         leverage_min=_f("HT_LEVERAGE_MIN", cfg.leverage_min),
@@ -94,6 +101,8 @@ def from_env(base=None, *, dotenv_path=".env"):
         trading_enabled=_b("HT_TRADING_ENABLED", cfg.trading_enabled),
         usdt_inr_rate=_f("HT_USDT_INR", cfg.usdt_inr_rate),
         alert_mode=_s("HT_ALERT_MODE", cfg.alert_mode),
+        llm_model=_s("HT_LLM_MODEL", cfg.llm_model),
+        enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
 

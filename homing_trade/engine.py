@@ -13,6 +13,7 @@ from homing_trade.skills.rsi_revert import RsiRevert
 from homing_trade.skills.grid import Grid
 from homing_trade.skills.rl_qlearn import RLQLearn
 from homing_trade.skills.committee import Committee, build_agents
+from homing_trade.skills.llm_trader import LlmTrader
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
@@ -20,6 +21,7 @@ _SKILL_FACTORY = {
     "grid": Grid,
     "rl_qlearn": RLQLearn,
     "committee": Committee,
+    "llm_trader": LlmTrader,
 }
 
 
@@ -36,6 +38,9 @@ def build_skills(names, cfg=None):
         elif cfg is not None and n == "committee":
             skills.append(Committee(agents=build_agents(cfg.agent_mode, cfg),
                                     threshold=cfg.committee_threshold))
+        elif cfg is not None and n == "llm_trader":
+            skills.append(LlmTrader(model=cfg.llm_model,
+                                    interval_min=getattr(cfg, "llm_interval_min", 15)))
         else:
             skills.append(_SKILL_FACTORY[n]())
     return skills
