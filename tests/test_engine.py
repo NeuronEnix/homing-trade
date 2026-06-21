@@ -64,3 +64,18 @@ def test_run_skips_already_processed_candle(tmp_path):
     # 3 skills x exactly one processed tick = 3 rows (NOT 9)
     assert count == 3
     db.close()
+
+
+def test_run_persists_live_candles(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "live.db"))
+    candles_raw = [{"open": c.open, "high": c.high, "low": c.low, "close": c.close,
+                    "volume": c.volume, "time": c.time} for c in rising_then_drop()]
+
+    def fake_fetcher(url, params):
+        return candles_raw
+
+    run(cfg, fetcher=fake_fetcher, max_ticks=1, sleeper=lambda s: None)
+    db = Database(cfg.db_path)
+    n = db.count_candles(cfg.pair_candles, cfg.interval, source="live")
+    assert n == len(candles_raw)
+    db.close()
