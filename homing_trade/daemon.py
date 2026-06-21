@@ -56,5 +56,15 @@ def run_daemon(cfg=CONFIG, *, notifier=None, status_path=None, run_engine=None,
     return {"restarts": restarts, "last_error": last_error}
 
 
+def cfg_from_env(cfg=CONFIG):
+    """Apply env overrides (after loading .env): HOMING_ALERT_MODE picks the alert channel
+    (e.g. 'telegram') without editing code, and Telegram creds come from the env."""
+    from dataclasses import replace
+    from homing_trade.dotenv import load_dotenv
+    load_dotenv()
+    mode = os.environ.get("HOMING_ALERT_MODE")
+    return replace(cfg, alert_mode=mode) if mode else cfg
+
+
 if __name__ == "__main__":
-    run_daemon()
+    run_daemon(cfg_from_env())

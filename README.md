@@ -57,8 +57,35 @@ lb = LiveBroker.from_env(dry_run=False)    # ⚠️ THIS places REAL orders with
 `from_env()` defaults to `dry_run=True`, so even after adding keys nothing is live until you
 pass `dry_run=False` yourself. Backtest → paper-prove → only then consider live, small.
 
+## Telegram alerts (optional)
+
+Get a phone ping on every (paper) trade and on daemon start/stop/crash.
+
+**1. Create a bot** — open Telegram, message **@BotFather**, send `/newbot`, follow the
+prompts. It replies with a **token** like `123456789:AAE...`.
+
+**2. Get your chat id** — message your new bot anything (say "hi"), then visit
+`https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser and copy the number in
+`"chat":{"id": ...}`. (Or message **@userinfobot**, which just tells you your id.)
+
+**3. Put them in `.env`** (gitignored — never committed):
+```bash
+HOMING_ALERT_MODE=telegram
+TELEGRAM_BOT_TOKEN=123456789:AAE...
+TELEGRAM_CHAT_ID=123456789
+```
+
+**4. Run the daemon** — it reads `.env`, switches to Telegram, and pings you on every trade:
+```bash
+python -m homing_trade.daemon
+```
+
+Alerts never crash the bot — if Telegram is unreachable, the trade still happens and the
+error is swallowed. To go back to terminal output, remove `HOMING_ALERT_MODE` (default is
+`console`).
+
 ## Tests
 
 ```bash
-python -m pytest -q     # 133 tests
+python -m pytest -q     # 138 tests
 ```

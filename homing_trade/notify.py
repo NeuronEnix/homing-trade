@@ -47,6 +47,27 @@ class WebhookNotifier(Notifier):
             pass  # alerts must never crash the bot
 
 
+class TelegramNotifier(Notifier):
+    """Sends alerts to a Telegram chat via the Bot API. Token + chat_id come from the
+    environment (never hardcoded). Post errors are swallowed — alerts never crash the bot."""
+
+    API = "https://api.telegram.org/bot{token}/sendMessage"
+    _ICON = {"trade": "💱", "info": "ℹ️", "warn": "⚠️", "error": "🚨"}
+
+    def __init__(self, token, chat_id, poster=None):
+        self.token = token
+        self.chat_id = chat_id
+        self._poster = poster or _requests_poster
+
+    def notify(self, level, title, message):
+        text = f"{self._ICON.get(level, '•')} {title}\n{message}"
+        try:
+            self._poster(self.API.format(token=self.token),
+                         {"chat_id": self.chat_id, "text": text})
+        except Exception:
+            pass  # alerts must never crash the bot
+
+
 def build_notifier(cfg):
     mode = getattr(cfg, "alert_mode", "console")
     if mode == "null":
@@ -55,4 +76,7 @@ def build_notifier(cfg):
         return FileNotifier(cfg.alert_log_path)
     if mode == "webhook":
         return WebhookNotifier(cfg.webhook_url)
+    if mode == "telegram":
+        return TelegramNotifier(os.environ.get(cfg.telegram_token_env, ""),
+                                os.environ.get(cfg.telegram_chat_id_env, ""))
     return ConsoleNotifier()
