@@ -1,6 +1,4 @@
 # tests/test_engine.py
-import json
-from pathlib import Path
 from algotrading.engine import build_skills, process_tick, run
 from algotrading.db import Database
 from algotrading.broker import Broker
