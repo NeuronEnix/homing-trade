@@ -9,12 +9,14 @@ from algotrading.skills.ma_trend import MaTrend
 from algotrading.skills.rsi_revert import RsiRevert
 from algotrading.skills.grid import Grid
 from algotrading.skills.rl_qlearn import RLQLearn
+from algotrading.skills.committee import Committee
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
     "rsi_revert": RsiRevert,
     "grid": Grid,
     "rl_qlearn": RLQLearn,
+    "committee": Committee,
 }
 
 
