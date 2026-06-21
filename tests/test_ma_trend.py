@@ -12,6 +12,7 @@ def test_warming_up_returns_hold():
     s = MaTrend(fast=3, slow=5)
     sig = s.on_candle(candles_from([1, 2, 3]), None)
     assert sig.action == "HOLD"
+    assert sig.reason == "warming up"
 
 
 def test_crossover_up_returns_long():
@@ -28,3 +29,4 @@ def test_crossover_down_returns_short():
     closes = [3, 4, 5, 6, 7, 8, 9, 10, 1]
     sig = s.on_candle(candles_from(closes), None)
     assert sig.action == "SHORT"
+    assert "fast" in sig.indicators
