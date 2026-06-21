@@ -33,6 +33,7 @@ class Config:
     alert_mode: str = "console"          # "console" | "file" | "webhook" | "telegram" | "null"
     alert_log_path: str = "data/alerts.log"
     webhook_url: str = ""
+    discord_webhook_env: str = "DISCORD_WEBHOOK_URL"
     telegram_token_env: str = "TELEGRAM_BOT_TOKEN"
     telegram_chat_id_env: str = "TELEGRAM_CHAT_ID"
     live_enabled: bool = False

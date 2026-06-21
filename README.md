@@ -57,35 +57,36 @@ lb = LiveBroker.from_env(dry_run=False)    # ⚠️ THIS places REAL orders with
 `from_env()` defaults to `dry_run=True`, so even after adding keys nothing is live until you
 pass `dry_run=False` yourself. Backtest → paper-prove → only then consider live, small.
 
-## Telegram alerts (optional)
+## Discord alerts (recommended)
 
-Get a phone ping on every (paper) trade and on daemon start/stop/crash.
+Get pinged on every (paper) trade and on daemon start/stop/crash. Discord needs **just a
+webhook URL** — no bot token.
 
-**1. Create a bot** — open Telegram, message **@BotFather**, send `/newbot`, follow the
-prompts. It replies with a **token** like `123456789:AAE...`.
+**1. Create a webhook** — in your Discord server: **Server Settings → Integrations →
+Webhooks → New Webhook**, pick the channel, then **Copy Webhook URL**. It looks like
+`https://discord.com/api/webhooks/<id>/<token>`.
 
-**2. Get your chat id** — message your new bot anything (say "hi"), then visit
-`https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser and copy the number in
-`"chat":{"id": ...}`. (Or message **@userinfobot**, which just tells you your id.)
-
-**3. Put them in `.env`** (gitignored — never committed):
+**2. Put it in `.env`** (gitignored — never committed):
 ```bash
-HOMING_ALERT_MODE=telegram
-TELEGRAM_BOT_TOKEN=123456789:AAE...
-TELEGRAM_CHAT_ID=123456789
+HOMING_ALERT_MODE=discord
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
-**4. Run the daemon** — it reads `.env`, switches to Telegram, and pings you on every trade:
+**3. Run the daemon** — it reads `.env`, switches to Discord, and pings you on every trade:
 ```bash
 python -m homing_trade.daemon
 ```
 
-Alerts never crash the bot — if Telegram is unreachable, the trade still happens and the
-error is swallowed. To go back to terminal output, remove `HOMING_ALERT_MODE` (default is
-`console`).
+Messages look like: **💱 grid CLOSE** — `sell 0.001 @ 6,050,000 pnl=+₹40`.
+
+Alerts never crash the bot — if Discord is unreachable, the trade still happens and the
+error is swallowed. Remove `HOMING_ALERT_MODE` to go back to terminal output (default).
+
+> Telegram is also supported (`HOMING_ALERT_MODE=telegram` with `TELEGRAM_BOT_TOKEN` +
+> `TELEGRAM_CHAT_ID`) if you prefer it.
 
 ## Tests
 
 ```bash
-python -m pytest -q     # 138 tests
+python -m pytest -q     # 141 tests
 ```
