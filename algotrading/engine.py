@@ -1,5 +1,7 @@
 # algotrading/engine.py
+import os
 import time
+from algotrading.allocator import compute_allocations, recent_performance
 from algotrading.config import CONFIG
 from algotrading.db import Database
 from algotrading.broker import Broker
@@ -8,16 +10,34 @@ from algotrading.models import Position
 from algotrading.skills.ma_trend import MaTrend
 from algotrading.skills.rsi_revert import RsiRevert
 from algotrading.skills.grid import Grid
+from algotrading.skills.rl_qlearn import RLQLearn
+from algotrading.skills.committee import Committee, build_agents
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
     "rsi_revert": RsiRevert,
     "grid": Grid,
+    "rl_qlearn": RLQLearn,
+    "committee": Committee,
 }
 
 
-def build_skills(names):
-    return [_SKILL_FACTORY[n]() for n in names if n in _SKILL_FACTORY]
+def build_skills(names, cfg=None):
+    skills = []
+    for n in names:
+        if n not in _SKILL_FACTORY:
+            continue
+        if cfg is not None and n == "rl_qlearn":
+            skills.append(RLQLearn(
+                alpha=cfg.rl_alpha, gamma=cfg.rl_gamma, epsilon=cfg.rl_epsilon,
+                fast=cfg.rl_fast, slow=cfg.rl_slow,
+                qtable_path=os.path.join(cfg.qtable_dir, f"qtable_{n}.json")))
+        elif cfg is not None and n == "committee":
+            skills.append(Committee(agents=build_agents(cfg.agent_mode, cfg),
+                                    threshold=cfg.committee_threshold))
+        else:
+            skills.append(_SKILL_FACTORY[n]())
+    return skills
 
 
 def _close_position(db, broker, skill, position, exit_price, candle, now_ms):
@@ -32,10 +52,10 @@ def _close_position(db, broker, skill, position, exit_price, candle, now_ms):
     return balance
 
 
-def _open_position(db, broker, skill, side, candle, cfg, now_ms):
+def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0):
     entry_fill = broker.fill_price(candle.close, side, is_entry=True)
     size, margin = broker.position_size(
-        db.get_balance(skill.name), entry_fill, cfg.risk_pct, cfg.stop_pct, cfg.leverage)
+        db.get_balance(skill.name), entry_fill, cfg.risk_pct * weight, cfg.stop_pct, cfg.leverage)
     stop = broker.stop_price(entry_fill, side, cfg.stop_pct)
     fee = broker.entry_fee(size, entry_fill)
     balance = db.get_balance(skill.name) - fee
@@ -49,7 +69,13 @@ def _open_position(db, broker, skill, side, candle, cfg, now_ms):
 def process_tick(db, broker, skills, candles, cfg):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
+    if getattr(cfg, "allocator_enabled", False):
+        perf = {s.name: recent_performance(db, s.name, cfg.allocator_lookback) for s in skills}
+        weights = compute_allocations(perf)
+    else:
+        weights = {}
     for skill in skills:
+        weight = weights.get(skill.name, 1.0)
         position = db.get_open_position(skill.name)
         # 1. risk checks on existing position
         if position is not None:
@@ -66,7 +92,7 @@ def process_tick(db, broker, skills, candles, cfg):
                         signal.confidence, signal.reason, signal.indicators)
         # 3. act
         if signal.action in ("LONG", "SHORT") and position is None:
-            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms)
+            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight)
         elif signal.action == "CLOSE" and position is not None:
             _close_position(db, broker, skill, position, candle.close, candle, now_ms)
         # 4. equity snapshot
@@ -79,7 +105,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None):
     sleeper = sleeper or time.sleep
     db = Database(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
-    skills = build_skills(cfg.enabled_skills)
+    skills = build_skills(cfg.enabled_skills, cfg)
     for s in skills:
         db.ensure_strategy(s.name, cfg.starting_balance)
     ticks = 0
@@ -100,6 +126,12 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None):
             if max_ticks is None or ticks < max_ticks:
                 sleeper(cfg.poll_seconds)
     finally:
+        for s in skills:
+            if hasattr(s, "save"):
+                try:
+                    s.save()
+                except Exception:
+                    pass
         db.close()
 
 
