@@ -30,6 +30,15 @@ class Config:
     allocator_enabled: bool = False
     allocator_lookback: int = 20
     qtable_dir: str = "data"
+    alert_mode: str = "console"          # "console" | "file" | "webhook" | "null"
+    alert_log_path: str = "data/alerts.log"
+    webhook_url: str = ""
+    live_enabled: bool = False
+    live_dry_run: bool = True
+    coindcx_key_env: str = "COINDCX_API_KEY"
+    coindcx_secret_env: str = "COINDCX_API_SECRET"
+    daemon_status_path: str = "data/daemon_status.json"
+    daemon_backoff_seconds: int = 5
 
 
 CONFIG = Config()
