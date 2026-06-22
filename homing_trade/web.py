@@ -11,6 +11,7 @@ import http.server
 import json
 import os
 import queue
+import sqlite3
 import threading
 import time
 import webbrowser
@@ -21,6 +22,7 @@ from homing_trade.selfquery import SelfQuery
 from homing_trade.engine import run as engine_run
 from homing_trade.feed import get_prices
 from homing_trade.notify import build_notifier
+from homing_trade.proposals import ProposalApplier, ProposalApplyError
 
 
 class Controller:
@@ -90,6 +92,37 @@ class Controller:
     @property
     def disabled(self):
         return set(self._disabled)
+
+    def decide_proposal(self, proposal_id, decision):
+        """Approve (and immediately apply) or reject a pending proposal from the UI / #comms.
+        Approve is the human gate; apply is the mechanical effect — only the playbook kind
+        auto-applies today (param/prompt/strategy_toggle stay approved-but-unapplied until their
+        runtime override stores exist). Opens its own short-lived repo connection (WAL lets it
+        run alongside the engine thread). Returns a result dict for the caller to surface."""
+        if decision not in ("approve", "reject"):
+            return {"ok": False, "error": "decision must be approve|reject"}
+        repo = Repository.open(self.cfg.db_path)
+        try:
+            now = int(time.time() * 1000)
+            if decision == "reject":
+                ok = repo.decide_proposal(proposal_id, "rejected", "human:web", now)
+                return {"ok": ok, "status": "rejected" if ok else "not_pending"}
+            ok = repo.decide_proposal(proposal_id, "approved", "human:web", now)
+            if not ok:
+                return {"ok": False, "error": "proposal not pending"}
+            try:
+                result = ProposalApplier(repo).apply(proposal_id, applied_by="human:web", now_ms=now)
+                return {"ok": True, "status": "applied", "result": result}
+            except (ProposalApplyError, ValueError) as exc:
+                # Approved, but not auto-applied (kind not wired, or a guard tripped). The approval
+                # stands; the row stays approved + un-applied for an operator to handle.
+                return {"ok": True, "status": "approved", "applied": False, "note": str(exc)}
+        except sqlite3.OperationalError as exc:
+            # Write contention with the engine thread beyond busy_timeout — report it as a
+            # retryable error instead of letting it escape and drop the HTTP connection.
+            return {"ok": False, "error": f"db busy, retry: {exc}"}
+        finally:
+            repo.close()
 
     def reset(self):
         """Stop and wipe the paper ledger (keeps cached candles)."""
@@ -174,6 +207,20 @@ def build_state(cfg, controller):
         # all realized outcomes; the as_of embargo is for the learning loop, not display.
         regime_breakdown = sq.regime_performance()
         exit_breakdown = sq.exit_reason_breakdown()
+        # Proposal queue: the AI's pending suggestions awaiting human approve/reject, plus the
+        # recently-decided ones for feedback. payload is parsed so the UI can show rules/params.
+        proposals = []
+        for p in repo.recent_proposals(limit=25):
+            try:
+                payload = json.loads(p["payload_json"])
+            except Exception:
+                payload = None
+            proposals.append({
+                "id": p["id"], "strategy": p["strategy"], "kind": p["kind"],
+                "rationale": p["rationale"], "status": p["status"],
+                "created_ts": p["created_ts"], "decided_by": p.get("decided_by"),
+                "applied_ts": p.get("applied_ts"), "applied_result": p.get("applied_result"),
+                "payload": payload})
         return {
             "status": controller.status(),
             "last_error": controller.last_error,
@@ -183,6 +230,7 @@ def build_state(cfg, controller):
             "strategies": strategies, "trades": trades, "decisions": decisions,
             "brain_log": brain_log,
             "regime_breakdown": regime_breakdown, "exit_breakdown": exit_breakdown,
+            "proposals": proposals,
         }
     finally:
         repo.close()
@@ -233,6 +281,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b"{}") if length else {}
         except Exception:
             body = {}
+        try:
+            self._dispatch_post(body)
+        except Exception as exc:   # backstop: always send SOME response, never drop the socket
+            self._send({"ok": False, "error": str(exc)}, 500)
+
+    def _dispatch_post(self, body):
         if self.path == "/api/control":
             action = body.get("action")
             ctrl = self.controller
@@ -251,6 +305,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return self._send({"error": "strategy required"}, 400)
             self.controller.set_strategy_enabled(strategy, bool(body.get("enabled")))
             self._send({"ok": True, "disabled": sorted(self.controller.disabled)})
+        elif self.path == "/api/proposal":
+            # bool is an int subclass — reject it explicitly so {"id": true} can't target id 1.
+            pid_raw = body.get("id")
+            if isinstance(pid_raw, bool):
+                return self._send({"error": "valid id required"}, 400)
+            try:
+                pid = int(pid_raw)
+            except (TypeError, ValueError):
+                return self._send({"error": "valid id required"}, 400)
+            decision = body.get("decision")
+            if decision not in ("approve", "reject"):
+                return self._send({"error": "decision must be approve|reject"}, 400)
+            self._send(self.controller.decide_proposal(pid, decision))
         else:
             self._send({"error": "not found"}, 404)
 
