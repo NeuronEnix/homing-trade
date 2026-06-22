@@ -146,6 +146,8 @@ def build_state(cfg, controller):
         board = sq.leaderboard(names)
         perf = {p["strategy"]: p for p in board}
         rank = {p["strategy"]: i + 1 for i, p in enumerate(board)}
+        # Per-provider cost rollup (Phase 5 #4): tokens + $ per AI strategy from the cost_ledger.
+        costs = sq.cost_summary()
         # Latest decided action per strategy (for the "last action" column). recent_decisions
         # is newest-first, so the first row seen per strategy is its most recent.
         last_action = {}
@@ -181,6 +183,12 @@ def build_state(cfg, controller):
                     "equity_curve": [round(e, 2) for e in repo.equity_series(n)[-40:]],
                     "position": position}
             if n.startswith("llm_"):
+                c = costs.get(n)
+                if c is not None:
+                    item["cost"] = {"calls": c["calls"], "total_tokens": c["total_tokens"],
+                                    "prompt_tokens": c["prompt_tokens"],
+                                    "completion_tokens": c["completion_tokens"],
+                                    "usd": round(c["usd"], 6)}
                 lr = repo.recent_llm_responses(n, 1)
                 if lr:
                     r = lr[0]

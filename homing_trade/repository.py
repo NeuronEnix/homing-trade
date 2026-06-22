@@ -56,6 +56,12 @@ class Repository(Ledger):
     def latest_llm_rationale(self, strategy):
         return self.db.latest_llm_rationale(strategy)
 
+    def record_cost(self, strategy, ts, model, backend, prompt_tokens, completion_tokens, usd):
+        return self.db.record_cost(strategy, ts, model, backend, prompt_tokens, completion_tokens, usd)
+
+    def cost_summary(self, strategy=None):
+        return self.db.cost_summary(strategy)
+
     def recent_close_pnls(self, strategy, limit):
         return self.db.recent_close_pnls(strategy, limit)
 

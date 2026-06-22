@@ -62,6 +62,11 @@ class Ledger(ABC):
     def record_regime(self, pair, interval, time, regime, adx=None, ema_slope=None,
                       realized_vol=None) -> None: ...
 
+    def record_cost(self, strategy, ts, model, backend, prompt_tokens, completion_tokens, usd) -> None:
+        """Append one AI-consult cost row (Phase 5 #4). Concrete default is a no-op: backends with
+        no `cost_ledger` table (e.g. the in-memory backtest ledger) skip it; the SQLite Repository
+        overrides this. Lets `engine.process_tick` call it unconditionally."""
+
     def rebuild_trade_outcomes(self, pair=None, interval=None) -> None:
         """Refresh the denormalized open->close outcome table (with MAE/MFE when pair/interval
         are given). Concrete default is a no-op: backends that don't persist a `trade_outcomes`

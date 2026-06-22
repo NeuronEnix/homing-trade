@@ -63,6 +63,11 @@ class SelfQuery:
         """How the strategy's decisions resolved: {taken_action: count}."""
         return self._repo.taken_action_counts(strategy)
 
+    def cost_summary(self, strategy=None) -> dict:
+        """Per-provider cost rollup (Phase 5 #4): {strategy: {calls, prompt_tokens,
+        completion_tokens, total_tokens, usd}}. Read-only over the cost_ledger audit table."""
+        return self._repo.cost_summary(strategy)
+
     # --- completed-trade attribution over trade_outcomes (embargo-aware via as_of) ---
     def outcomes(self, strategy=None, as_of=None) -> list:
         """Raw completed-trade outcome rows. `as_of` enforces the look-ahead embargo."""
