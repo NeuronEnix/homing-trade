@@ -37,6 +37,11 @@ class Config:
     # narrows down by requesting lower timeframes (5m/1m) via requested_charts when it sees a setup.
     ai_timeframes: list[str] = field(default_factory=lambda: ["15m", "1h", "4h"])
     ai_chart_limit: int = 150               # candles per chart
+    # Snapshot of the AI_* environment captured by from_env (the single env->Config layer). The
+    # multi-AI provider registry (ai_traders.build_ai_traders) discovers AI_<NAME>_IS_ENABLED/
+    # _BACKEND/_POLL_IN_SEC/_MODEL providers from THIS dict, never the live os.environ — so a bare
+    # Config() composes deterministically (empty => no env-discovered providers).
+    ai_providers_env: dict = field(default_factory=dict)
     # Reflection — the periodic learn->correct loop. Default OFF (and free): when enabled it
     # consults Claude on a slow cadence to retrospect over completed trades and FILE human-gated
     # playbook proposals (it never applies anything itself; the approval gate still stands).
@@ -135,6 +140,9 @@ def from_env(base=None, *, dotenv_path=".env"):
         ai_anthropic_poll_sec=_i("AI_ANTHROPIC_POLL_IN_SEC", cfg.ai_anthropic_poll_sec),
         ai_timeframes=_list("HT_AI_TIMEFRAMES", cfg.ai_timeframes),
         ai_chart_limit=_i("HT_AI_CHART_LIMIT", cfg.ai_chart_limit),
+        # Capture the AI_* env subset so build_ai_traders discovers providers from Config, not the
+        # live os.environ — keeps env parsing in this single layer and engine composition deterministic.
+        ai_providers_env={k: v for k, v in os.environ.items() if k.startswith("AI_")},
         reflection_enabled=_b("REFLECTION_IS_ENABLED", cfg.reflection_enabled),
         reflection_poll_sec=_i("REFLECTION_POLL_IN_SEC", cfg.reflection_poll_sec),
         reflection_min_trades=_i("REFLECTION_MIN_TRADES", cfg.reflection_min_trades),
