@@ -90,6 +90,44 @@ def test_manage_risk_closes_on_stop():
     assert led.get_open_position("ma_trend") is None
 
 
+def test_close_records_exit_reason():
+    cfg = Config()
+    led = MemoryLedger("ma_trend", 5000.0)
+    pm = PositionManager(led, Broker(cfg.fee, cfg.slippage), cfg)
+    pm.open(_Skill(), "LONG", _candle(close=100.0), now_ms=1000)
+    pos = led.get_open_position("ma_trend")
+    pm.close(_Skill(), pos, exit_price=110.0, candle=_candle(close=110.0), now_ms=2000,
+             exit_reason="signal")
+    assert led.trades[-1]["exit_reason"] == "signal"
+
+
+def test_manage_risk_stamps_stop_reason():
+    from homing_trade.models import Position
+    led = MemoryLedger("ma_trend", 5000.0)
+    pos = Position(strategy="ma_trend", side="LONG", entry_price=100.0, size=1.0,
+                   leverage=10.0, margin=10.0, stop_price=98.0, opened_at=1000)
+    led.open_position(pos)
+    pm = PositionManager(led, _StopBroker())          # _StopBroker reports a stop-out
+    pm.manage_risk(_Skill(), led.get_open_position("ma_trend"), _candle(t=2000), now_ms=2000)
+    assert led.trades[-1]["exit_reason"] == "stop"
+
+
+def test_manage_risk_stamps_liquidation_reason():
+    from homing_trade.models import Position
+
+    class _LiqBroker(_StopBroker):
+        def hit_liquidation(self, pos, candle): return True
+        def liquidation_price(self, pos): return 90.0
+
+    led = MemoryLedger("ma_trend", 5000.0)
+    pos = Position(strategy="ma_trend", side="LONG", entry_price=100.0, size=1.0,
+                   leverage=10.0, margin=10.0, stop_price=98.0, opened_at=1000)
+    led.open_position(pos)
+    pm = PositionManager(led, _LiqBroker())
+    pm.manage_risk(_Skill(), led.get_open_position("ma_trend"), _candle(t=2000), now_ms=2000)
+    assert led.trades[-1]["exit_reason"] == "liquidation"   # liquidation takes priority over stop
+
+
 def test_manage_risk_keeps_position_when_safe():
     class _SafeBroker(_StopBroker):
         def hit_stop(self, pos, candle): return False
