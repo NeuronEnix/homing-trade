@@ -737,17 +737,51 @@ class Database:
         self.conn.commit()
         return cur.lastrowid
 
-    def recent_reflections(self, strategy=None, limit=50):
+    def recent_reflections(self, strategy=None, limit=50, kind=None):
         # Newest by event time (ts), id as a stable tiebreak — uses idx_reflections_strategy_ts
-        # for the per-strategy case.
+        # for the per-strategy case. `kind` filters periodic vs per_trade so the two loops never
+        # read each other's rows (e.g. the periodic watermark must ignore per_trade reflections).
+        cond, params = [], []
         if strategy is not None:
-            rows = self.conn.execute(
-                "SELECT * FROM reflections WHERE strategy=? ORDER BY ts DESC, id DESC LIMIT ?",
-                (strategy, limit))
-        else:
-            rows = self.conn.execute(
-                "SELECT * FROM reflections ORDER BY ts DESC, id DESC LIMIT ?", (limit,))
-        return [dict(r) for r in rows]
+            cond.append("strategy=?")
+            params.append(strategy)
+        if kind is not None:
+            cond.append("kind=?")
+            params.append(kind)
+        q = "SELECT * FROM reflections"
+        if cond:
+            q += " WHERE " + " AND ".join(cond)
+        q += " ORDER BY ts DESC, id DESC LIMIT ?"
+        params.append(limit)
+        return [dict(r) for r in self.conn.execute(q, params)]
+
+    def get_decision(self, decision_id):
+        """The decision_log row for a decision_id (the entry thesis a trade traces back to), or
+        None. Read-only join helper for the per-trade Reflexion pass."""
+        if not decision_id:
+            return None
+        row = self.conn.execute(
+            "SELECT * FROM decision_log WHERE decision_id=? ORDER BY id ASC LIMIT 1",
+            (decision_id,)).fetchone()
+        return dict(row) if row else None
+
+    def llm_response_at(self, strategy, ts):
+        """The AI response a strategy emitted at decision time `ts` (observation/prediction/
+        rationale), or None — decision_log and llm_responses are written with the same wall-clock
+        ts in one tick, so an exact ts match recovers the thesis. None for mechanical skills."""
+        row = self.conn.execute(
+            "SELECT * FROM llm_responses WHERE strategy=? AND ts=? ORDER BY id DESC LIMIT 1",
+            (strategy, ts)).fetchone()
+        return dict(row) if row else None
+
+    def per_trade_reflection_exists(self, strategy, position_id) -> bool:
+        """True if a per_trade reflection already covers this position. The per-trade pass writes
+        trade_ids_json = json.dumps([position_id]); an exact match is precise (won't confuse 1
+        with 10). Lets the critique be one-per-trade regardless of how its caller is wired."""
+        row = self.conn.execute(
+            "SELECT 1 FROM reflections WHERE strategy=? AND kind='per_trade' AND trade_ids_json=? "
+            "LIMIT 1", (strategy, json.dumps([position_id]))).fetchone()
+        return row is not None
 
     def publish_playbook(self, version, strategy, created_ts, rules, *, parent_version=None):
         """Append a new immutable playbook version. `rules` is JSON-serialized. A published

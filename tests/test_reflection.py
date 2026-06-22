@@ -159,3 +159,155 @@ def test_prompt_presents_mechanical_metrics_and_does_not_self_grade(tmp_path):
     assert "directional_accuracy" in p and "by_regime" in p
     assert "do NOT re-grade" in p          # the model is told the scoring is mechanical
     repo.close()
+
+
+# --- the secondary loop: per-closed-trade Reflexion -----------------------------------------
+
+def seed_one_trade(repo, strategy="ma", pid=1, did="d1", ot=1000, ct=1500, entry=100.0,
+                   exit_px=92.0, side="LONG", *, with_thesis=True,
+                   obs="range-bound at support", pred="break up toward 110",
+                   why="ema cross up + rsi turning"):
+    """One completed round-trip wired to its originating decision + (optionally) AI thesis,
+    linked by decision_id, then the outcome table rebuilt."""
+    repo.ensure_strategy(strategy, 5000.0)
+    if with_thesis:
+        repo.log_decision(strategy, ot, ot, side, 0.8, "ema cross", {"ema": 1},
+                          decision_id=did, intended_action=side, taken_action=side,
+                          regime="trend_up")
+        repo.record_llm_response(strategy, ot, "cli", "claude", side, 0.8,
+                                 obs, pred, why, "{...}", "")
+    repo.record_trade(strategy, pid, side, "OPEN", entry, 1, 0.1, -0.1, ot,
+                      decision_id=(did if with_thesis else None), regime_at_entry="trend_up")
+    repo.record_trade(strategy, pid, side, "CLOSE", exit_px, 1, 0.1, exit_px - entry, ct,
+                      exit_reason="stop")
+    repo.rebuild_trade_outcomes()
+
+
+def test_reflect_on_trade_writes_per_trade_reflection(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)                                   # LONG 100->92: predicted up, fell
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "ignored chop; entered against trend"}))
+    out = eng.reflect_on_trade("ma", 1, now_ms=100000)
+    assert out is not None and out["position_id"] == 1
+    assert out["prediction_correct"] == 0                  # LONG that fell -> mechanically wrong
+    refl = repo.recent_reflections("ma", kind="per_trade")[0]
+    assert refl["kind"] == "per_trade"
+    assert refl["lesson"] == "ignored chop; entered against trend"
+    assert json.loads(refl["trade_ids_json"]) == [1]
+    assert refl["new_playbook_version"] is None            # per-trade proposes no playbook
+    m = json.loads(refl["metrics_json"])
+    assert m["prediction_correct"] == 0 and m["exit_reason"] == "stop"
+    assert m["realized_pnl"] == -8.1                       # OPEN -0.1 + CLOSE (92-100)=-8.0
+    assert repo.pending_proposals() == []                  # the SECONDARY loop files no proposal
+    repo.close()
+
+
+def test_reflect_on_trade_prompt_has_thesis_and_mechanical_truth(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)
+    cap = {}
+    ReflectionEngine(repo, lambda p: (cap.__setitem__("p", p),
+                                      json.dumps({"lesson": "x"}))[1]).reflect_on_trade(
+        "ma", 1, now_ms=100000)
+    p = cap["p"]
+    # the model sees what it SAID (thesis) ...
+    assert "break up toward 110" in p and "range-bound at support" in p
+    # ... and the MECHANICAL ground truth, told not to re-grade it
+    assert "prediction_correct" in p and "exit_reason" in p
+    assert "do NOT re-grade" in p
+    repo.close()
+
+
+def test_reflect_on_trade_embargo_hides_unrealized(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo, ct=50000)                         # closes at ts=50000
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "y"}))
+    assert eng.reflect_on_trade("ma", 1, now_ms=10000) is None   # before realize -> embargoed
+    assert repo.recent_reflections("ma", kind="per_trade") == []
+    repo.close()
+
+
+def test_reflect_on_trade_missing_trade_is_noop(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "y"}))
+    assert eng.reflect_on_trade("ma", 999, now_ms=100000) is None   # no such position
+    repo.close()
+
+
+def test_reflect_on_trade_no_model_or_error_is_noop(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)
+    assert ReflectionEngine(repo, None).reflect_on_trade("ma", 1, now_ms=100000) is None
+    def boom(_p):
+        raise RuntimeError("down")
+    assert ReflectionEngine(repo, boom).reflect_on_trade("ma", 1, now_ms=100000) is None
+    assert repo.recent_reflections("ma", kind="per_trade") == []
+    repo.close()
+
+
+def test_reflect_on_trade_empty_lesson_records_nothing(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "   "}))   # nothing concrete to learn
+    assert eng.reflect_on_trade("ma", 1, now_ms=100000) is None
+    assert repo.recent_reflections("ma", kind="per_trade") == []
+    repo.close()
+
+
+def test_reflect_on_trade_works_for_mechanical_trade_without_thesis(tmp_path):
+    # A mechanical-skill trade has a decision but no AI observation/prediction/rationale.
+    # The critique still runs (degrading the missing thesis fields to empty), never crashes.
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo, with_thesis=False)
+    out = ReflectionEngine(repo, fixed_llm({"lesson": "stop too tight"})).reflect_on_trade(
+        "ma", 1, now_ms=100000)
+    assert out is not None
+    assert repo.recent_reflections("ma", kind="per_trade")[0]["lesson"] == "stop too tight"
+    repo.close()
+
+
+def test_reflect_on_trade_is_idempotent_per_position(tmp_path):
+    # ONE critique per trade: a second call for the same position re-spends nothing on the model
+    # and writes no second reflection (safe regardless of how the close-hook caller is wired).
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)
+    calls = {"n": 0}
+    def once(_p):
+        calls["n"] += 1
+        return json.dumps({"lesson": "stop too tight"})
+    eng = ReflectionEngine(repo, once)
+    assert eng.reflect_on_trade("ma", 1, now_ms=100000) is not None
+    assert eng.reflect_on_trade("ma", 1, now_ms=120000) is None    # already reflected -> no-op
+    assert calls["n"] == 1                                          # model NOT re-consulted
+    assert len(repo.recent_reflections("ma", kind="per_trade")) == 1
+    repo.close()
+
+
+def test_reflect_on_trade_non_string_lesson_is_dropped_not_crashed(tmp_path):
+    # A model that returns a non-string lesson (a list) must not reach .strip() and crash the
+    # loop; it's treated as "nothing learned" -> no reflection.
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_one_trade(repo)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": ["a", "b"]}))
+    assert eng.reflect_on_trade("ma", 1, now_ms=100000) is None
+    assert repo.recent_reflections("ma", kind="per_trade") == []
+    repo.close()
+
+
+def test_per_trade_reflection_does_not_corrupt_periodic_watermark(tmp_path):
+    # CROSS-LOOP ISOLATION: the periodic loop's watermark is the last PERIODIC reflection's
+    # batch_to_ts. A per_trade reflection (more recent by ts, but covering one old trade) must
+    # NOT be mistaken for that watermark, or the periodic loop would re-reflect old outcomes.
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)                               # outcomes realized by ts~6500
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "a", "rules": ["b"]}), min_trades=3)
+    assert eng.run_once("ma", now_ms=100000) is not None   # periodic reflection, watermark=100000
+    # a per_trade reflection lands LATER in ts but covers an OLD trade (batch_to_ts ~1500)
+    eng.reflect_on_trade("ma", 1, now_ms=150000)
+    assert repo.recent_reflections("ma", kind="per_trade")                       # it was recorded
+    # periodic pass again: no NEW outcomes since the periodic watermark (100000) -> must skip,
+    # NOT be fooled into re-reflecting by the more-recent per_trade row.
+    assert eng.run_once("ma", now_ms=200000) is None
+    assert len(repo.recent_reflections("ma", kind="periodic")) == 1
+    repo.close()

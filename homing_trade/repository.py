@@ -134,8 +134,17 @@ class Repository(Ledger):
     def record_reflection(self, *args, **kwargs):
         return self.db.record_reflection(*args, **kwargs)
 
-    def recent_reflections(self, strategy=None, limit=50):
-        return self.db.recent_reflections(strategy, limit)
+    def recent_reflections(self, strategy=None, limit=50, kind=None):
+        return self.db.recent_reflections(strategy, limit, kind)
+
+    def get_decision(self, decision_id):
+        return self.db.get_decision(decision_id)
+
+    def llm_response_at(self, strategy, ts):
+        return self.db.llm_response_at(strategy, ts)
+
+    def per_trade_reflection_exists(self, strategy, position_id):
+        return self.db.per_trade_reflection_exists(strategy, position_id)
 
     def publish_playbook(self, *args, **kwargs):
         return self.db.publish_playbook(*args, **kwargs)

@@ -13,6 +13,14 @@ It NEVER publishes a playbook or applies anything — the proposal is human-gate
 protected-fields guard in `create_proposal` still applies). It is wall-clock-paced and
 decoupled from the candle loop: the caller decides cadence; this just does one pass. It never
 crashes the loop — a missing/erroring/garbled model simply yields no reflection (returns None).
+
+`reflect_on_trade(strategy, position_id, now_ms)` is the SECONDARY loop: one focused critique
+of a single completed trade at CLOSE. It joins the closed outcome to its originating decision
+(via decision_id) and the AI's observation/prediction/rationale, presents the MECHANICAL
+outcome (realized P&L, prediction_correct, MAE/MFE, exit_reason — all from prices/the ledger,
+never the model's self-grade), and records a `per_trade` reflection. It files NO proposal — the
+periodic loop owns playbook proposals; per-trade is a critique stream that informs it. Same
+never-crash / no-op-without-a-model contract.
 """
 import json
 
@@ -39,9 +47,11 @@ class ReflectionEngine:
         few new outcomes, or an unusable model response)."""
         if self.reflect_fn is None:
             return None
-        # 1. only reflect over outcomes realized since the last reflection (watermark) AND
-        #    already realized as of now (look-ahead embargo).
-        last = self.repo.recent_reflections(strategy, 1)
+        # 1. only reflect over outcomes realized since the last PERIODIC reflection (watermark)
+        #    AND already realized as of now (look-ahead embargo). kind='periodic' so a per_trade
+        #    reflection (secondary loop, more recent in ts but covering one old trade) can't be
+        #    mistaken for the watermark and make us re-reflect old outcomes.
+        last = self.repo.recent_reflections(strategy, 1, kind="periodic")
         since = last[0]["batch_to_ts"] if (last and last[0]["batch_to_ts"] is not None) else 0
         outcomes = [o for o in self.repo.trade_outcomes(strategy, as_of=now_ms)
                     if (o.get("realized_at_ts") or 0) > since]
@@ -63,7 +73,7 @@ class ReflectionEngine:
             return None
         if not parsed:
             return None
-        lesson = (parsed.get("lesson") or "").strip()
+        lesson = self._lesson(parsed)
         rules = parsed.get("rules") or []
         if not isinstance(rules, list):
             rules = []
@@ -91,6 +101,77 @@ class ReflectionEngine:
         return {"reflection_id": rid, "proposal_id": proposal_id,
                 "new_version": new_version, "n_trades": len(outcomes)}
 
+    def reflect_on_trade(self, strategy, position_id, now_ms):
+        """One per-trade critique (secondary loop). Returns a dict summary, or None when skipped
+        (no model, embargoed/missing outcome, model error, garbled/empty response)."""
+        if self.reflect_fn is None:
+            return None
+        # embargo: only critique a trade already realized as of now (no peeking at the future).
+        outcome = next((o for o in self.repo.trade_outcomes(strategy, as_of=now_ms)
+                        if o.get("position_id") == position_id), None)
+        if outcome is None:
+            return None
+        # idempotent: ONE critique per trade. Bail before consulting the model so a re-fire
+        # (retry, restart-replay of recent closes, manual+auto close of the same position)
+        # neither double-spends the LLM nor double-writes — the "one pass at close" contract
+        # is enforced here, not just assumed of the caller.
+        if self.repo.per_trade_reflection_exists(strategy, position_id):
+            return None
+        # trace back to the entry thesis (decision + AI observation/prediction/rationale).
+        decision = self.repo.get_decision(outcome.get("decision_id"))
+        llm = self.repo.llm_response_at(strategy, decision["ts"]) if decision else None
+        try:
+            raw = self.reflect_fn(self._build_trade_prompt(strategy, outcome, decision, llm))
+            parsed = self._parse(raw)
+        except Exception:
+            return None
+        if not parsed:
+            return None
+        lesson = self._lesson(parsed)
+        if not lesson:
+            return None                        # nothing concrete learned -> record nothing
+        metrics = {k: outcome.get(k) for k in (
+            "side", "entry_price", "exit_price", "realized_pnl", "pnl_pct",
+            "prediction_correct", "mae", "mfe", "exit_reason", "holding_period_ms",
+            "regime_at_entry")}
+        rid = self.repo.record_reflection(
+            strategy, "per_trade", now_ms,
+            batch_from_ts=outcome.get("entry_ts"), batch_to_ts=outcome.get("exit_ts"),
+            trade_ids=[position_id], metrics=metrics, lesson=lesson,
+            new_playbook_version=None, model=self.model, raw=raw)
+        return {"reflection_id": rid, "position_id": position_id,
+                "prediction_correct": outcome.get("prediction_correct")}
+
+    def _build_trade_prompt(self, strategy, outcome, decision, llm):
+        d, l = decision or {}, llm or {}
+        thesis = {
+            "intended_action": d.get("intended_action") or d.get("action"),
+            "confidence": d.get("confidence"),
+            "decision_reason": d.get("reason"),         # the indicator/mechanical reason
+            "observation": l.get("observation"),         # the AI's free-text thesis (if any)
+            "prediction": l.get("prediction"),
+            "rationale": l.get("rationale"),
+        }
+        facts = {k: outcome.get(k) for k in (
+            "side", "entry_price", "exit_price", "realized_pnl", "pnl_pct",
+            "prediction_correct", "mae", "mfe", "exit_reason", "holding_period_ms",
+            "regime_at_entry")}
+        return (
+            "You are critiquing ONE completed trade to extract a single concrete lesson.\n\n"
+            f"Strategy: {strategy}\n\n"
+            "What the strategy SAID at entry — its thesis. This is opinion and may have been "
+            "wrong:\n"
+            f"{json.dumps(thesis, indent=2, default=str)}\n\n"
+            "What ACTUALLY happened — MECHANICAL ground truth computed from prices/the ledger. "
+            "prediction_correct is scored from the price path, NOT your opinion; do NOT re-grade "
+            "it:\n"
+            f"{json.dumps(facts, indent=2, default=str)}\n\n"
+            "Critique the entry thesis against the outcome: was the reasoning sound given what "
+            "the market did, or did it ignore something visible at the time? Return STRICT JSON "
+            "only: {\"lesson\": \"<one concrete, specific, actionable lesson>\"}. If the trade "
+            "is unremarkable with nothing to learn, return {\"lesson\": \"\"}."
+        )
+
     def _build_prompt(self, strategy, outcomes, metrics, current):
         rules = []
         if current:
@@ -111,6 +192,13 @@ class ReflectionEngine:
             "\"rules\": [\"<refined rule>\", ...]}. Refine/supersede stale rules rather than "
             "blindly appending. If there is no improvement to make, return an empty rules list."
         )
+
+    @staticmethod
+    def _lesson(parsed):
+        """A model 'lesson' coerced to a clean string ('' if absent or not text). A non-string
+        lesson (e.g. a list) must never reach .strip() and crash the loop."""
+        v = parsed.get("lesson")
+        return v.strip() if isinstance(v, str) else ""
 
     @staticmethod
     def _parse(raw):
