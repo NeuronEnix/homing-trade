@@ -19,6 +19,7 @@ from homing_trade.skills.macd import MacdCross
 from homing_trade.skills.bollinger import BollingerRevert
 from homing_trade.skills.donchian import DonchianBreakout
 from homing_trade.ai_traders import build_ai_traders
+from homing_trade.reflect_runner import ReflectionRunner, build_reflect_fn
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
@@ -192,6 +193,17 @@ class SkillRunner:
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
+        # The PERIODIC reflection loop (learn->correct). Gated default-OFF; when enabled it
+        # retrospects over completed trades on a slow wall-clock cadence and FILES human-gated
+        # proposals (it applies nothing). Decoupled from the candle loop, like the AI poll.
+        self.reflection = ReflectionRunner(
+            ledger, build_reflect_fn(cfg),
+            poll_sec=getattr(cfg, "reflection_poll_sec", 3600),
+            min_trades=getattr(cfg, "reflection_min_trades", 5),
+            starting_balance=cfg.starting_balance,
+            # label the reflection with the model actually invoked (matches build_reflect_fn),
+            # not a generic tag, so the audit trail names the real model.
+            model=(getattr(cfg, "reflection_model", "") or cfg.llm_model or "reflection"))
 
     def run_tick(self, candles, *, is_paused=None, commands=None, is_disabled=None):
         candle = candles[-1]
@@ -209,6 +221,12 @@ class SkillRunner:
             process_tick(self.ledger, self.broker, self.ai_traders, candles,
                          self.cfg, self.guard, self.notifier, is_paused, is_disabled)
         self._emit_trade_alerts()
+        # Periodic reflection on its own slow cadence (no-op unless reflection_enabled). Self-
+        # gated, so calling it every tick is cheap; it consults the model at most every poll_sec.
+        # Scoped to the AI traders: they are the only strategies that consume a playbook (the
+        # mechanical skills are deterministic), so reflecting over them avoids filing inert
+        # playbook proposals for strategies that could never act on one.
+        self.reflection.run(sorted(self._ai_names))
 
     def _emit_trade_alerts(self):
         if self.notifier is None:
