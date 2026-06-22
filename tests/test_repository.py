@@ -85,3 +85,10 @@ def test_dashboard_reads_and_reset(tmp_path):
     repo.reset_paper_ledger()
     assert repo.strategy_names() == []
     assert repo.recent_trades(10) == [] and repo.recent_decisions(10) == []
+
+
+def test_risk_events_delegation(tmp_path):
+    repo = make(tmp_path)
+    repo.record_risk_event(1000, "ma_trend", "veto", "daily notional cap", 999.0)
+    evs = repo.recent_risk_events(10)
+    assert len(evs) == 1 and evs[0]["kind"] == "veto" and evs[0]["notional"] == 999.0

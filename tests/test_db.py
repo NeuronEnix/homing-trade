@@ -71,27 +71,32 @@ def test_migrate_idempotent_on_reopen(tmp_path):
 
 
 def test_migrate_upgrades_legacy_db(tmp_path):
-    # Simulate a pre-migration DB: no schema_version row, missing a v1 index.
-    db = make_db(tmp_path)
-    db.conn.execute("DELETE FROM state WHERE key='schema_version'")
-    db.conn.execute("DROP INDEX IF EXISTS idx_trades_position_id")
-    db.conn.commit()
-    assert db.schema_version() == 0
-    db._migrate()
+    # Build a genuine pre-v2 DB (base schema, schema_version=1, no v2 columns) and confirm
+    # opening it upgrades in place: v2 columns + risk_events get added, version -> head.
+    import sqlite3
+    from homing_trade.db import SCHEMA
+    p = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(p)
+    conn.executescript(SCHEMA)
+    conn.execute("INSERT INTO state(key, value) VALUES('schema_version', '1')")
+    conn.commit()
+    conn.close()
+    db = Database(p)                       # __init__ runs _migrate() -> applies v2
     assert db.schema_version() == SCHEMA_VERSION
-    names = {r["name"] for r in db.conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
-    assert "idx_trades_position_id" in names
+    cols = {r[1] for r in db.conn.execute("PRAGMA table_info(decision_log)")}
+    assert "decision_id" in cols and "rejection_rationale" in cols
+    tables = {r["name"] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "risk_events" in tables
 
 
 def test_migrate_skips_already_applied_version(tmp_path, monkeypatch):
     # The `ver > current` guard must NOT re-run an applied migration: swap v1 for SQL
     # that would explode if executed, then confirm _migrate is a clean no-op at head.
     import homing_trade.db as dbmod
-    db = make_db(tmp_path)  # already at head (v1)
+    db = make_db(tmp_path)  # already at head
     monkeypatch.setitem(dbmod.MIGRATIONS, 1, ["THIS WOULD FAIL IF EXECUTED"])
     db._migrate()
-    assert db.schema_version() == 1
+    assert db.schema_version() == SCHEMA_VERSION
 
 
 def test_closed_pnls_and_equity_series(tmp_path):
@@ -106,15 +111,40 @@ def test_closed_pnls_and_equity_series(tmp_path):
 
 def test_migrate_atomic_rolls_back_partial(tmp_path, monkeypatch):
     # A version whose later statement fails must leave NO partial DDL and NOT bump the version.
+    # Inject a version ABOVE head so _migrate actually runs it.
     import homing_trade.db as dbmod
-    db = make_db(tmp_path)  # at head (v1)
-    monkeypatch.setitem(dbmod.MIGRATIONS, 2, [
-        "CREATE INDEX IF NOT EXISTS idx_tmp_v2 ON trades(fee)",  # would succeed alone
-        "CREATE INDEX bad_syntax ON",                            # broken -> rolls back whole v2
+    db = make_db(tmp_path)  # at head
+    bad_ver = SCHEMA_VERSION + 1
+    monkeypatch.setitem(dbmod.MIGRATIONS, bad_ver, [
+        "CREATE INDEX IF NOT EXISTS idx_tmp_bad ON trades(fee)",  # would succeed alone
+        "CREATE INDEX bad_syntax ON",                            # broken -> rolls back this version
     ])
     with pytest.raises(Exception):
         db._migrate()
-    assert db.schema_version() == 1
+    assert db.schema_version() == SCHEMA_VERSION                 # version not bumped
     names = {r["name"] for r in db.conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
-    assert "idx_tmp_v2" not in names
+    assert "idx_tmp_bad" not in names                            # partial DDL rolled back
+
+
+def test_migration_v2_adds_columns_and_risk_events(tmp_path):
+    db = make_db(tmp_path)
+    assert db.schema_version() == SCHEMA_VERSION
+    dl = {r[1] for r in db.conn.execute("PRAGMA table_info(decision_log)")}
+    assert {"decision_id", "intended_action", "taken_action", "rejection_rationale",
+            "regime", "realized_vol", "prompt_version", "playbook_version"} <= dl
+    lr = {r[1] for r in db.conn.execute("PRAGMA table_info(llm_responses)")}
+    assert {"prompt_version", "prompt_hash", "next_check_in_sec", "requested_charts"} <= lr
+    tr = {r[1] for r in db.conn.execute("PRAGMA table_info(trades)")}
+    assert {"decision_price", "slippage"} <= tr
+    tables = {r["name"] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "risk_events" in tables
+
+
+def test_risk_events_roundtrip(tmp_path):
+    db = make_db(tmp_path)
+    db.record_risk_event(1000, "ma_trend", "veto", "daily notional cap", 1234.5)
+    db.record_risk_event(2000, None, "halt", "daily loss limit", None)
+    evs = db.recent_risk_events(10)
+    assert [e["kind"] for e in evs] == ["halt", "veto"]   # newest first
+    assert evs[1]["notional"] == 1234.5 and evs[1]["strategy"] == "ma_trend"
