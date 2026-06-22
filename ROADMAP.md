@@ -49,13 +49,13 @@ Goal: a dashboard that shows per-strategy & per-AI leaderboard + the brain-log (
 - [x] Brain-log panel: render `llm_responses` (observation / prediction / rationale / confidence / next_check_in_sec / error) per AI from `recent_llm_responses`. _(build_state returns `brain_log` — 30 most-recent responses across all AIs, newest first, trimmed to replayable fields (raw excluded); dashboard renders a scrollable panel: AI+model, time·action·confidence·next-check-in, error, and saw/predicts/why — read-only, null-safe)_
 - [x] Per-regime and per-variant breakdown panel reading the Phase-2 `trade_outcomes`/`regimes` tables. _(build_state returns regime_breakdown + exit_breakdown via read-only SelfQuery.regime_performance/exit_reason_breakdown; dashboard renders "by regime" (trades/win%/total+avg pnl) and "by exit reason" tables. Also wired the production trade_outcomes rebuild into process_tick (no-op on backtest ledger) — MAE/MFE now populates live. Per-variant A/B attribution deferred to Phase-7 experiments)_
 - [ ] Proposal/approval queue UI (reads Phase-4 `proposals` table): list pending param/prompt/playbook proposals with Approve / Reject buttons posting to a new `/api/proposal` endpoint (mirror the existing `/api/control` + `/api/close` pattern in `web.py`).
-- [ ] Surface all controls already in `Controller` (start/stop/pause/resume/close_trade/reset) plus a per-AI enable/disable toggle.
+- [x] Surface all controls already in `Controller` (start/stop/pause/resume/close_trade/reset) plus a per-AI enable/disable toggle. _(start/stop/pause/resume/reset/close already in the UI; added a runtime per-strategy enable/disable toggle — Controller._disabled set + set_strategy_enabled + is_disabled callback into the engine; disabled strategy still gets stop/liquidation risk management but takes no new decision (AI skips the consult); POST /api/toggle + per-card button. Runtime-only (resets on restart))_
 - [ ] Daemon hardening: confirm `daemon.run_daemon` auto-restarts on crash with backoff (`daemon_backoff_seconds`), writes `daemon_status.json`, and the clean SIGTERM/SIGINT shutdown (already landed) is covered by `test_daemon.py`.
 - [ ] Always-on: document + script an OS-level supervisor (launchd plist on macOS / systemd unit) so the daemon restarts on reboot; health-ping `#comms` via `comms.post` on start/stop/crash.
 - [ ] Wire `comms.read` (bot-token inbound) so approvals can also arrive from Discord, not only the web UI (depends on the Discord bot token — see API shopping list).
 - [ ] Tests: extend `test_web.py` for the new endpoints + approval queue; `test_daemon.py` for restart/backoff.
 
-Progress: 3/9 _(leaderboard + AI brain-log + per-regime/per-exit breakdown panels live; trade_outcomes rebuild now wired into the live engine loop)_
+Progress: 4/9 _(leaderboard + AI brain-log + per-regime/per-exit breakdown + per-strategy enable/disable toggle live; trade_outcomes rebuild wired into the engine loop. #4 proposal-queue UI deferred until Phase-4 lands the `proposals` table)_
 
 ---
 
