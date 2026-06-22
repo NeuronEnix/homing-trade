@@ -206,6 +206,15 @@ class SkillRunner:
             for t in self.ai_traders:
                 if hasattr(t, "set_fng_provider"):
                     t.set_fng_provider(lambda: get_fng(ledger))
+        # Derivatives (perp funding + open interest) — per-trader by its own instrument's Binance
+        # symbol (p=t.pair binds per-iteration to avoid late-binding); cache-aware, degrade-safe.
+        if getattr(cfg, "derivs_enabled", False) and hasattr(ledger, "get_signal"):
+            from homing_trade.signals.derivs import get_derivs, binance_symbol
+            for t in self.ai_traders:
+                if hasattr(t, "add_context_provider"):
+                    t.add_context_provider(
+                        "derivatives",
+                        lambda p=getattr(t, "pair", cfg.pair_candles): get_derivs(ledger, binance_symbol(p)))
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
