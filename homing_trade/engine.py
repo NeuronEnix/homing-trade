@@ -224,6 +224,15 @@ class SkillRunner:
                     t.add_context_provider(
                         "coindcx",
                         lambda p=getattr(t, "pair", cfg.pair_candles): get_coindcx(ledger, p))
+        # Independent reference price (CoinGecko) to sanity-check the venue — GLOBAL (one call covers
+        # all assets), cache-aware, degrade-safe. Keyless public tier works; the Demo key just lifts
+        # the rate limit. Resolved from the gitignored env var; never logged.
+        if getattr(cfg, "price_ref_enabled", False) and hasattr(ledger, "get_signal"):
+            from homing_trade.signals.price_ref import get_price_ref, resolve_key
+            _pr_key = resolve_key(getattr(cfg, "coingecko_key_env", ""))
+            for t in self.ai_traders:
+                if hasattr(t, "add_context_provider"):
+                    t.add_context_provider("price_ref", lambda k=_pr_key: get_price_ref(ledger, api_key=k))
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0

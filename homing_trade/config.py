@@ -42,6 +42,8 @@ class Config:
     fng_enabled: bool = True
     derivs_enabled: bool = True             # Binance perp funding-rate + open-interest
     coindcx_signal_enabled: bool = True     # CoinDCX live orderbook + mark/funding (traded instrument)
+    price_ref_enabled: bool = True          # CoinGecko independent reference price (venue sanity-check)
+    coingecko_key_env: str = "COINGECKO_DEMO_KEY"   # free Demo key (optional; keyless tier works)
     # Snapshot of the AI_* environment captured by from_env (the single env->Config layer). The
     # multi-AI provider registry (ai_traders.build_ai_traders) discovers AI_<NAME>_IS_ENABLED/
     # _BACKEND/_POLL_IN_SEC/_MODEL providers from THIS dict, never the live os.environ — so a bare
@@ -148,6 +150,7 @@ def from_env(base=None, *, dotenv_path=".env"):
         fng_enabled=_b("FNG_IS_ENABLED", cfg.fng_enabled),
         derivs_enabled=_b("DERIVS_IS_ENABLED", cfg.derivs_enabled),
         coindcx_signal_enabled=_b("COINDCX_SIGNAL_IS_ENABLED", cfg.coindcx_signal_enabled),
+        price_ref_enabled=_b("PRICE_REF_IS_ENABLED", cfg.price_ref_enabled),
         # Capture the AI_* env subset so build_ai_traders discovers providers from Config, not the
         # live os.environ — keeps env parsing in this single layer and engine composition deterministic.
         ai_providers_env={k: v for k, v in os.environ.items() if k.startswith("AI_")},
