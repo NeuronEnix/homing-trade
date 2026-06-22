@@ -62,6 +62,13 @@ class Repository(Ledger):
     def cost_summary(self, strategy=None):
         return self.db.cost_summary(strategy)
 
+    # --- Phase-6 external-signal cache ---
+    def upsert_signal(self, source, key, ts, value, fetched_at):
+        return self.db.upsert_signal(source, key, ts, value, fetched_at)
+
+    def get_signal(self, source, key):
+        return self.db.get_signal(source, key)
+
     def recent_close_pnls(self, strategy, limit):
         return self.db.recent_close_pnls(strategy, limit)
 

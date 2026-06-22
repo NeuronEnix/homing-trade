@@ -23,7 +23,7 @@ DEFAULT_TIMEFRAMES = ("15m", "1h", "4h")   # bird's-eye context; AI drills down 
 # Identity of THIS system prompt. Bump on any change to _SYSTEM/_SCHEMA so a decision is
 # attributable to the exact prompt that produced it. When an approved playbook is injected, the
 # effective prompt_version becomes f"{PROMPT_VERSION}+{playbook_version}".
-PROMPT_VERSION = "mtf-v1"
+PROMPT_VERSION = "mtf-v2"
 
 _SCHEMA = {
     "type": "object",
@@ -67,6 +67,10 @@ _SYSTEM = (
     "If the data includes a 'playbook' field, those are hard-won rules distilled from YOUR OWN "
     "past trades on this instrument (human-approved). Treat them as priors: follow them unless "
     "the current setup clearly contradicts one, and weigh them in your rationale.\n\n"
+    "If the data includes a 'fear_greed' field (the crypto Fear & Greed index: value 0-100 + "
+    "classification), use it as a CONTEXTUAL sentiment gauge — extremes often mark exhaustion "
+    "(extreme greed -> caution on fresh longs; extreme fear -> caution on fresh shorts) — never as "
+    "a standalone trigger; the price action across timeframes still leads.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
     "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
@@ -117,7 +121,7 @@ class LlmTrader(Strategy):
                  max_tokens=600, backend="api", cli_timeout=120,
                  pair="B-BTC_USDT", provider=None, name=None, clock=None, min_interval_sec=60,
                  timeframes=DEFAULT_TIMEFRAMES, chart_limit=150,
-                 playbook_provider=None, playbook_max_rules=12):
+                 playbook_provider=None, playbook_max_rules=12, fng_provider=None):
         self.name = name or "llm_trader"   # per-instance so multiple brains get separate wallets
         self.model = model
         self.interval_sec = interval_sec        # the configured MAX gap between consults (seconds)
@@ -138,11 +142,29 @@ class LlmTrader(Strategy):
         # Wired by SkillRunner to read the ledger; None in unit tests / when no playbook exists.
         self._playbook_provider = playbook_provider
         self.playbook_max_rules = playbook_max_rules
+        # callable() -> the current external sentiment reading (e.g. Fear & Greed dict) or None.
+        # Wired by SkillRunner to the cached signal; None in unit tests / when ingestion is off.
+        self._fng_provider = fng_provider
 
     def set_playbook_provider(self, provider):
         """Inject (post-construction) the source of this trader's current playbook — SkillRunner
         wires it to the ledger since build_ai_traders has no ledger reference."""
         self._playbook_provider = provider
+
+    def set_fng_provider(self, provider):
+        """Inject (post-construction) the source of the current Fear & Greed reading — SkillRunner
+        wires it to the cached signal; build_ai_traders has no ledger reference."""
+        self._fng_provider = provider
+
+    def _current_fng(self):
+        """The current sentiment reading to inject, or None. Never raises — a failed read just
+        omits the field so the consult proceeds on price action alone."""
+        if not self._fng_provider:
+            return None
+        try:
+            return self._fng_provider() or None
+        except Exception:
+            return None
 
     def _current_playbook(self):
         """(version, [rule, ...]) for THIS strategy's current playbook — bounded to top-K, with
@@ -232,6 +254,9 @@ class LlmTrader(Strategy):
         }
         if playbook_rules:
             ctx["playbook"] = list(playbook_rules)         # learned, human-approved priors
+        fng = self._current_fng()
+        if fng:
+            ctx["fear_greed"] = fng                        # external sentiment context (Phase 6)
         return ctx
 
     def on_candle(self, candles, position):
