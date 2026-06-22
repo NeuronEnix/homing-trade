@@ -73,6 +73,7 @@
 <script>
 const $=s=>document.querySelector(s);
 const fmt=n=>n==null?'—':Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
+const usd=n=>n==null?'—':'$'+Number(n).toFixed(n>=1?2:4);
 const tm=ts=>new Date(ts).toLocaleTimeString();
 // Escape model-authored / free text before it goes into innerHTML. The AI's rationale, playbook
 // rules, observations etc. are untrusted strings (and Phase-6 will ingest external research) —
@@ -170,13 +171,15 @@ function card(x){
       ${x.ai.prediction?`\n<b>predicts:</b> ${esc(x.ai.prediction)}`:''}
       ${x.ai.rationale?`\n<b>why:</b> ${esc(x.ai.rationale)}`:''}</div>`;
   }
+  // Phase 5 #5: per-AI cost column — tokens + $ spent across all consults (cost_ledger rollup).
+  const cost=x.cost?`<div class="kv"><span class="mut">AI cost</span><span title="${x.cost.calls} consults · ${fmt(x.cost.prompt_tokens)} in / ${fmt(x.cost.completion_tokens)} out">${usd(x.cost.usd)} · ${fmt(x.cost.total_tokens)} tok</span></div>`:'';
   const metrics=`<div class="metrics">
     <div class="kv"><span class="mut">trades</span><span>${x.trades}</span></div>
     <div class="kv"><span class="mut">win rate</span><span>${x.trades?fmt(x.win_rate*100)+'%':'—'}</span></div>
     <div class="kv"><span class="mut">profit factor</span><span>${x.profit_factor==null?'—':fmt(x.profit_factor)}</span></div>
     <div class="kv"><span class="mut">max DD</span><span class="${x.max_drawdown>0?'dn':'mut'}">${fmt(x.max_drawdown)}</span></div>
     <div class="kv"><span class="mut">expectancy</span><span class="${x.expectancy>=0?'up':'dn'}">${fmt(x.expectancy)}</span></div>
-    <div class="kv"><span class="mut">last action</span><span>${x.last_action||'—'}</span></div></div>`;
+    <div class="kv"><span class="mut">last action</span><span>${x.last_action||'—'}</span></div>${cost}</div>`;
   const toggle=x.disabled
     ? `<button class="mini" onclick="toggleStrategy('${x.name}',true)">▶ Enable</button>`
     : `<button class="mini" onclick="toggleStrategy('${x.name}',false)">⏸ Disable</button>`;

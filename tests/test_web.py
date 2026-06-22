@@ -470,3 +470,13 @@ def test_dashboard_html_loaded_from_asset():
     # proposal-queue UI is wired (Phase-3 #4): the panel + the approve/reject action
     assert "/api/proposal" in DASHBOARD_HTML and "decideProposal" in DASHBOARD_HTML
     assert "proposal queue" in DASHBOARD_HTML
+
+
+def test_dashboard_renders_per_ai_cost_column():
+    # Phase 5 #5: the per-AI cost column (tokens + $) + a usd formatter, fed by build_state's
+    # x.cost, and the enable/disable toggle (from Phase 3) are both wired into the leaderboard card.
+    from homing_trade.web import DASHBOARD_HTML
+    assert "const usd=" in DASHBOARD_HTML                 # money formatter
+    assert "x.cost" in DASHBOARD_HTML                     # reads the per-AI cost rollup
+    assert "AI cost" in DASHBOARD_HTML and "tok" in DASHBOARD_HTML
+    assert "toggleStrategy(" in DASHBOARD_HTML            # enable/disable toggle present
