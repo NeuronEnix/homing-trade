@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -256,6 +256,30 @@ MIGRATIONS = {
             PRIMARY KEY (source, key)
         )""",
     ],
+    # v12: A/B variant-experiment ledger (Phase 7 #4). One row per honest two-variant test —
+    # a definitional `hypothesis` LABEL (e.g. "supertrend>ma_trend on pnl_pct"; NOT free model prose),
+    # the two variants, the metric, the pre-registered min-detectable-effect, the window, the realized
+    # sample sizes (n_a/n_b), and the mechanically-computed two-sided p_value + result + the multiple-
+    # comparison correction applied. All fields are mechanical bookkeeping (no model-authored text) ->
+    # audit-truth. A running experiment has end_ts/result/p_value NULL; conclude_experiment fills them.
+    12: [
+        """CREATE TABLE IF NOT EXISTS experiments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hypothesis TEXT NOT NULL,
+            variant_a TEXT NOT NULL,
+            variant_b TEXT NOT NULL,
+            metric TEXT NOT NULL,
+            mde REAL,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER,
+            n_a INTEGER,
+            n_b INTEGER,
+            result TEXT,                        -- NULL=running | 'a_wins'|'b_wins'|'inconclusive'
+            p_value REAL,
+            correction_method TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_experiments_start ON experiments(start_ts)",
+    ],
 }
 
 
@@ -279,6 +303,7 @@ MIGRATIONS = {
 AUDIT_TRUTH_TABLES = frozenset({
     "strategies", "wallets", "positions", "trades", "equity",
     "candles", "state", "risk_events", "regimes", "trade_outcomes", "cost_ledger", "signal_cache",
+    "experiments",
 })
 MODEL_AUTHORED_TABLES = frozenset({
     "decision_log", "llm_responses", "reflections", "playbooks", "proposals",
@@ -557,6 +582,61 @@ class Database:
         rows = self.conn.execute("SELECT * FROM signal_cache ORDER BY fetched_at DESC").fetchall()
         return [{"source": r["source"], "key": r["key"], "ts": r["ts"],
                  "value": json.loads(r["value_json"]), "fetched_at": r["fetched_at"]} for r in rows]
+
+    # --- A/B variant experiments (Phase 7 #4): mechanical bookkeeping, audit-truth ---
+    @staticmethod
+    def _experiment_row(r):
+        return {"id": r["id"], "hypothesis": r["hypothesis"], "variant_a": r["variant_a"],
+                "variant_b": r["variant_b"], "metric": r["metric"], "mde": r["mde"],
+                "start_ts": r["start_ts"], "end_ts": r["end_ts"], "n_a": r["n_a"], "n_b": r["n_b"],
+                "result": r["result"], "p_value": r["p_value"],
+                "correction_method": r["correction_method"],
+                # end_ts is THE conclusion marker (always set by conclude, always NULL at create),
+                # so status is correct even if a conclusion records a None/'inconclusive' result.
+                "status": "running" if r["end_ts"] is None else "concluded"}
+
+    def create_experiment(self, hypothesis, variant_a, variant_b, metric, start_ts,
+                          *, mde=None, correction_method=None) -> int:
+        """Register a running A/B experiment (end_ts/n/result/p_value left NULL). Returns its id."""
+        cur = self.conn.execute(
+            "INSERT INTO experiments(hypothesis, variant_a, variant_b, metric, mde, start_ts,"
+            " correction_method) VALUES(?,?,?,?,?,?,?)",
+            (hypothesis, variant_a, variant_b, metric, mde, start_ts, correction_method))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def conclude_experiment(self, experiment_id, end_ts, n_a, n_b, result, p_value,
+                            *, correction_method=None) -> None:
+        """Fill in an experiment's realized window/sample/result. correction_method overrides the
+        registered one only when given (Phase 7 #5 sets it when a correction is applied)."""
+        if correction_method is None:
+            self.conn.execute(
+                "UPDATE experiments SET end_ts=?, n_a=?, n_b=?, result=?, p_value=? WHERE id=?",
+                (end_ts, n_a, n_b, result, p_value, experiment_id))
+        else:
+            self.conn.execute(
+                "UPDATE experiments SET end_ts=?, n_a=?, n_b=?, result=?, p_value=?,"
+                " correction_method=? WHERE id=?",
+                (end_ts, n_a, n_b, result, p_value, correction_method, experiment_id))
+        self.conn.commit()
+
+    def get_experiment(self, experiment_id) -> dict | None:
+        row = self.conn.execute("SELECT * FROM experiments WHERE id=?", (experiment_id,)).fetchone()
+        return self._experiment_row(row) if row else None
+
+    def list_experiments(self, *, status=None) -> list:
+        """All experiments newest-start first; status ∈ {None, 'running', 'concluded'}."""
+        rows = self.conn.execute("SELECT * FROM experiments ORDER BY start_ts DESC, id DESC").fetchall()
+        out = [self._experiment_row(r) for r in rows]
+        return [e for e in out if status is None or e["status"] == status]
+
+    def experiment_search_budget(self, start_ts, end_ts) -> int:
+        """How many experiments were STARTED in [start_ts, end_ts] — the search-budget count that
+        Phase 7 #5's multiple-comparison correction (Bonferroni/BH) divides significance over."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM experiments WHERE start_ts BETWEEN ? AND ?",
+            (start_ts, end_ts)).fetchone()
+        return row["n"]
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
