@@ -11,6 +11,8 @@ embargo becomes relevant once `trade_outcomes` lands (it carries `realized_at_ts
 """
 from homing_trade import metrics
 
+DEFAULT_CONF_BANDS = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
+
 
 def _finite(x):
     """Map a non-finite metric (e.g. profit_factor with zero losses -> inf) to None, so
@@ -99,3 +101,28 @@ class SelfQuery:
         if not scored:
             return 0.0
         return sum(1 for o in scored if o["prediction_correct"]) / len(scored)
+
+    def confidence_calibration(self, strategy=None, as_of=None, bands=DEFAULT_CONF_BANDS) -> list:
+        """Per-confidence-band realized calibration: for each band [lo, hi) (top band inclusive of
+        1.0), how trades ENTERED at that confidence actually did — n, win_rate (mechanical
+        prediction_correct, from prices), total/avg pnl. Each outcome is joined to its entry
+        decision's confidence; outcomes with no recorded confidence are skipped. Embargo-aware
+        via as_of. Returns one dict per band (in ascending order)."""
+        rows = [r for r in self._repo.outcomes_with_confidence(strategy, as_of)
+                if r.get("decision_confidence") is not None]
+        out = []
+        n_bands = len(bands) - 1
+        for i in range(n_bands):
+            lo, hi = bands[i], bands[i + 1]
+            top = i == n_bands - 1
+            in_band = [r for r in rows
+                       if (lo <= r["decision_confidence"] < hi)
+                       or (top and r["decision_confidence"] == hi)]
+            scored = [r for r in in_band if r.get("prediction_correct") is not None]
+            wins = sum(1 for r in scored if r["prediction_correct"])
+            total_pnl = sum((r.get("realized_pnl") or 0.0) for r in in_band)
+            n = len(in_band)
+            out.append({"band": f"{lo:.2f}-{hi:.2f}", "lo": lo, "hi": hi, "n": n,
+                        "win_rate": (wins / len(scored)) if scored else 0.0,
+                        "total_pnl": total_pnl, "avg_pnl": (total_pnl / n) if n else 0.0})
+        return out

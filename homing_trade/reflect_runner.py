@@ -19,6 +19,7 @@ import json
 import time
 
 from homing_trade.reflection import ReflectionEngine
+from homing_trade.calibration import propose_confidence_floor
 
 
 class ReflectionRunner:
@@ -30,6 +31,7 @@ class ReflectionRunner:
         self.engine = ReflectionEngine(repo, reflect_fn, starting_balance=starting_balance,
                                        min_trades=min_trades, model=model)
         self.poll_sec = poll_sec
+        self._start = starting_balance
         self._clock = clock or time.time
         self._last = {}                       # strategy -> last wall-clock reflection time (s)
 
@@ -45,12 +47,19 @@ class ReflectionRunner:
             if last is not None and (now - last) < self.poll_sec:
                 continue                      # cadence not yet due for this strategy
             self._last[s] = now               # stamp before the call so a slow/failed call
-            try:                              # still spaces out the next attempt by poll_sec
-                res = self.engine.run_once(s, int(now * 1000))
+            now_ms = int(now * 1000)          # still spaces out the next attempt by poll_sec
+            try:
+                res = self.engine.run_once(s, now_ms)
             except Exception:
                 res = None                    # belt-and-suspenders; run_once already never raises
             if res:
                 out.append(res)
+            # Mechanical confidence-calibration -> a human-gated confidence-floor proposal (no
+            # LLM; idempotent). Part of the same learn->correct cadence; never crashes the loop.
+            try:
+                propose_confidence_floor(self.repo, s, now_ms, starting_balance=self._start)
+            except Exception:
+                pass
         return out
 
 

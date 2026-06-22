@@ -53,6 +53,34 @@ def test_runner_cadence_gates_llm_calls(tmp_path):
     repo.close()
 
 
+def test_runner_also_files_confidence_floor_proposal(tmp_path):
+    # The reflection cadence also runs the mechanical calibration -> a confidence-floor proposal.
+    # Use an empty-rules reflect_fn so the ONLY proposal filed is the calibration one.
+    repo = Repository.open(str(tmp_path / "r.db"))
+    repo.ensure_strategy("ma", 5000.0)
+    pid = 1
+    for _ in range(6):   # low-confidence losers
+        repo.log_decision("ma", 1000 + pid, 1000 + pid, "LONG", 0.30, "r", {}, decision_id=f"d{pid}",
+                          intended_action="LONG", taken_action="LONG")
+        repo.record_trade("ma", pid, "LONG", "OPEN", 100.0, 1, 0.1, -0.1, 1000 + pid, decision_id=f"d{pid}")
+        repo.record_trade("ma", pid, "LONG", "CLOSE", 95.0, 1, 0.1, -5.0, 1100 + pid, exit_reason="signal")
+        pid += 1
+    for _ in range(6):   # high-confidence winners
+        repo.log_decision("ma", 1000 + pid, 1000 + pid, "LONG", 0.70, "r", {}, decision_id=f"d{pid}",
+                          intended_action="LONG", taken_action="LONG")
+        repo.record_trade("ma", pid, "LONG", "OPEN", 100.0, 1, 0.1, -0.1, 1000 + pid, decision_id=f"d{pid}")
+        repo.record_trade("ma", pid, "LONG", "CLOSE", 110.0, 1, 0.1, 10.0, 1100 + pid, exit_reason="signal")
+        pid += 1
+    repo.rebuild_trade_outcomes()
+    r = ReflectionRunner(repo, fixed({"lesson": "x", "rules": []}), poll_sec=600, min_trades=3,
+                         clock=lambda: 1_000_000.0)
+    r.run(["ma"])
+    floors = [p for p in repo.pending_proposals("ma") if p["kind"] == "param"]
+    assert len(floors) == 1
+    assert json.loads(floors[0]["payload_json"])["confidence_floor"] == 0.6
+    repo.close()
+
+
 def test_runner_disabled_when_no_reflect_fn(tmp_path):
     repo = Repository.open(str(tmp_path / "r.db"))
     seed(repo)
