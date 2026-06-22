@@ -83,6 +83,61 @@ def test_process_tick_persists_replay_fields(tmp_path):
     db.close()
 
 
+def test_process_tick_persists_prompt_and_playbook_version(tmp_path):
+    # The playbook-injection versioning the AI trader emits must land on BOTH the llm_responses
+    # row (prompt_version + prompt_hash) and the decision_log row (prompt_version +
+    # playbook_version) so a decision is fully replayable and attributable to a playbook.
+    db = Database(str(tmp_path / "pv.db"))
+    db.ensure_strategy("llm_claude_code", 5000.0)
+    sig = Signal("HOLD", confidence=0.4, reason="r", raw='{"env":1}',
+                 meta={"observation": "o", "prediction": "p", "rationale": "w",
+                       "prompt_version": "mtf-v1+ma-v2", "playbook_version": "ma-v2",
+                       "prompt_hash": "deadbeefcafef00d"})
+    process_tick(db, Broker(0.0005, 0.0005), [StubAI(sig)], candles(), Config())
+    lr = db.recent_llm_responses("llm_claude_code")[0]
+    assert lr["prompt_version"] == "mtf-v1+ma-v2" and lr["prompt_hash"] == "deadbeefcafef00d"
+    d = db.conn.execute("SELECT prompt_version, playbook_version FROM decision_log "
+                        "WHERE strategy='llm_claude_code'").fetchone()
+    assert d["prompt_version"] == "mtf-v1+ma-v2" and d["playbook_version"] == "ma-v2"
+    db.close()
+
+
+def test_skillrunner_wires_playbook_provider_from_ledger(tmp_path):
+    # End-to-end wiring: SkillRunner gives each AI trader a provider that reads the CURRENT
+    # published playbook for that trader's own strategy out of the ledger.
+    from homing_trade.engine import SkillRunner
+    from homing_trade.repository import Repository
+    repo = Repository.open(str(tmp_path / "sr.db"))
+    repo.publish_playbook("cc-v1", "llm_claude_code", 1000, {"rules": ["trend only", "skip chop"]})
+    cfg = Config()
+    cfg.ai_claude_code_enabled = True          # spin up one AI trader
+    cfg.enabled_skills = []                     # no mechanical skills needed for this check
+    runner = SkillRunner(cfg, repo, Broker(0.0005, 0.0005))
+    ai = next(t for t in runner.ai_traders if t.name == "llm_claude_code")
+    version, rules = ai._current_playbook()
+    assert version == "cc-v1" and rules == ["trend only", "skip chop"]
+    repo.close()
+
+
+def test_skillrunner_wiring_is_per_trader_not_late_bound(tmp_path):
+    # Regression guard for the closure: with TWO AI traders, each must read ITS OWN playbook.
+    # A naive `lambda: latest_playbook(t.name)` would late-bind and make both read the last one.
+    from homing_trade.engine import SkillRunner
+    from homing_trade.repository import Repository
+    repo = Repository.open(str(tmp_path / "sr2.db"))
+    repo.publish_playbook("cc-v1", "llm_claude_code", 1000, {"rules": ["cc rule"]})
+    repo.publish_playbook("an-v1", "llm_anthropic", 1000, {"rules": ["an rule"]})
+    cfg = Config()
+    cfg.ai_claude_code_enabled = True
+    cfg.ai_anthropic_enabled = True
+    cfg.enabled_skills = []
+    runner = SkillRunner(cfg, repo, Broker(0.0005, 0.0005))
+    by_name = {t.name: t._current_playbook() for t in runner.ai_traders}
+    assert by_name["llm_claude_code"] == ("cc-v1", ["cc rule"])
+    assert by_name["llm_anthropic"] == ("an-v1", ["an rule"])
+    repo.close()
+
+
 def test_error_alerts_discord_and_dedups(tmp_path):
     db = Database(str(tmp_path / "e.db"))
     db.ensure_strategy("llm_claude_code", 5000.0)

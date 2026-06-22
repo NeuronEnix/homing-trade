@@ -92,15 +92,17 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         # 2. strategy decision
         signal = skill.on_candle(candles, position)
         decision_id = uuid.uuid4().hex
+        m = signal.meta or {}     # AI provenance (reasoning + prompt/playbook version + hash)
         # 2b. persist the full AI response + reasoning (only on a real consult or an error)
         if signal.raw or signal.error:
-            m = signal.meta or {}
             db.record_llm_response(skill.name, now_ms, getattr(skill, "backend", ""),
                                    getattr(skill, "model", ""), signal.action, signal.confidence,
                                    m.get("observation", ""), m.get("prediction", ""),
                                    m.get("rationale", ""), signal.raw or "", signal.error or "",
                                    next_check_in_sec=m.get("next_check_in_sec"),
-                                   requested_charts=m.get("requested_charts"))
+                                   requested_charts=m.get("requested_charts"),
+                                   prompt_version=m.get("prompt_version"),
+                                   prompt_hash=m.get("prompt_hash"))
         # 2c. alert on an AI error (deduped so a persistent failure doesn't spam Discord)
         if signal.error and notifier is not None:
             if getattr(skill, "_last_alerted_error", None) != signal.error:
@@ -125,7 +127,9 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
                         signal.reason, signal.indicators, decision_id=decision_id,
                         intended_action=signal.action, taken_action=taken_action,
                         rejection_rationale=rejection, regime=reg["regime"],
-                        realized_vol=reg["realized_vol"])
+                        realized_vol=reg["realized_vol"],
+                        prompt_version=m.get("prompt_version"),
+                        playbook_version=m.get("playbook_version"))
         # 4. equity snapshot
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
@@ -178,6 +182,13 @@ class SkillRunner:
         self.skills = self.mech_skills + self.ai_traders
         for s in self.skills:
             ledger.ensure_strategy(s.name, cfg.starting_balance)
+        # Give each AI trader a live read of ITS OWN current playbook (the human-approved,
+        # learn->correct output). build_ai_traders has no ledger reference, so wire it here.
+        # Guarded: backtest ledgers without a playbook store simply don't get a provider.
+        if hasattr(ledger, "latest_playbook"):
+            for t in self.ai_traders:
+                if hasattr(t, "set_playbook_provider"):
+                    t.set_playbook_provider(lambda name=t.name: ledger.latest_playbook(name))
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
