@@ -12,33 +12,39 @@ import re
 import sys
 
 _HEADING = re.compile(r"^##\s+.*$", re.M)              # any level-2 heading bounds a section
+_PHASE_TITLE = re.compile(r"##\s+Phase\b")             # '## Phase' as a word (not 'Phaseout')
 _PROGRESS = re.compile(r"^Progress:\s*(\d+)\s*/\s*(\d+)", re.M)
+_FENCE = re.compile(r"```.*?```", re.S)                # fenced code blocks (examples, not task boxes)
 _CHECKED = re.compile(r"^- \[x\]", re.M | re.I)        # '- [x]' / '- [X]'
 _UNCHECKED = re.compile(r"^- \[ \]", re.M)             # '- [ ]'
 
 
 def check_roadmap(text):
-    """Return a list of human-readable problem strings (empty == consistent)."""
+    """Return a list of human-readable problem strings (empty == consistent). Section boundaries are
+    level-2 headings; fenced code blocks are stripped so example checkboxes/Progress lines inside
+    them never count; each phase must carry EXACTLY ONE Progress line matching its box counts."""
     problems = []
     headings = list(_HEADING.finditer(text))
-    phases = [m for m in headings if m.group(0).strip().startswith("## Phase")]
-    if not phases:
+    if not any(_PHASE_TITLE.match(m.group(0).strip()) for m in headings):
         return ["no '## Phase' sections found"]
     for m in headings:
         title = m.group(0).strip()
-        if not title.startswith("## Phase"):
+        if not _PHASE_TITLE.match(title):
             continue
         # the section ends at the NEXT heading of any kind, so a trailing non-Phase section
         # (e.g. '## Backlog') is never absorbed into the last phase
         nxt = next((h.start() for h in headings if h.start() > m.start()), len(text))
-        section = text[m.start():nxt]
+        section = _FENCE.sub("", text[m.start():nxt])   # ignore example boxes inside code fences
         checked = len(_CHECKED.findall(section))
         total = checked + len(_UNCHECKED.findall(section))
-        pm = _PROGRESS.search(section)
-        if not pm:
+        progs = _PROGRESS.findall(section)
+        if not progs:
             problems.append(f"{title}: no 'Progress: x/N' line")
             continue
-        px, pn = int(pm.group(1)), int(pm.group(2))
+        if len(progs) > 1:
+            problems.append(f"{title}: {len(progs)} 'Progress:' lines (expected exactly one)")
+            continue
+        px, pn = int(progs[0][0]), int(progs[0][1])
         if px != checked or pn != total:
             problems.append(
                 f"{title}: Progress says {px}/{pn} but the boxes are {checked} checked of {total}")

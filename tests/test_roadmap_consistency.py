@@ -60,6 +60,24 @@ def test_no_phases_flagged():
     assert check_roadmap("# Title\nsome text\n") == ["no '## Phase' sections found"]
 
 
+def test_fenced_code_block_boxes_are_ignored():
+    # an example checkbox inside a ``` fence must NOT count toward the phase's totals
+    text = ("## Phase 1 — x\n- [x] real\n\nProgress: 1/1\n\n"
+            "```\n- [ ] example in a code block\n- [x] another example\n```\n")
+    assert check_roadmap(text) == []
+
+
+def test_multiple_progress_lines_flagged():
+    text = "## Phase 1 — x\n- [x] a\n\nProgress: 1/1\n\nProgress: 99/99\n"
+    out = check_roadmap(text)
+    assert len(out) == 1 and "expected exactly one" in out[0]
+
+
+def test_phaseout_lookalike_heading_not_treated_as_phase():
+    # '## Phaseout' is not a phase -> no Progress line demanded, no false 'no Progress' error
+    assert check_roadmap("## Phaseout of scope\n- [ ] something\n") == ["no '## Phase' sections found"]
+
+
 # --- CLI exit codes ---
 def test_cli_passes_on_real_roadmap():
     r = subprocess.run([sys.executable, str(_SCRIPT), str(ROOT / "ROADMAP.md")],
