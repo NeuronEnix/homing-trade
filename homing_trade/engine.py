@@ -104,7 +104,8 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
             if paused:
                 taken_action, rejection = "PAUSED", "paused: new entries disabled"
             else:
-                opened, reason = pm.open(skill, signal.action, candle, now_ms, weight)
+                opened, reason = pm.open(skill, signal.action, candle, now_ms, weight,
+                                         decision_id=decision_id, regime_at_entry=reg["regime"])
                 taken_action, rejection = (signal.action, None) if opened else ("BLOCKED", reason)
         elif signal.action == "CLOSE" and position is not None:
             pm.close(skill, position, candle.close, candle, now_ms, exit_reason="signal")

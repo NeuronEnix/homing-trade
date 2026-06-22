@@ -48,6 +48,18 @@ def test_exit_reason_flows_into_outcome(tmp_path):
     assert db.trade_outcomes()[0]["exit_reason"] == "stop"   # carried from the CLOSE trade
 
 
+def test_decision_and_regime_flow_into_outcome(tmp_path):
+    db = make(tmp_path)
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000,
+                    decision_id="abc123", regime_at_entry="trend_up")
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 110.0, 1.0, 0.1, 9.9, 5000, exit_reason="signal")
+    db.rebuild_trade_outcomes()
+    o = db.trade_outcomes()[0]
+    assert o["decision_id"] == "abc123"        # from the OPEN trade
+    assert o["regime_at_entry"] == "trend_up"
+    assert o["exit_reason"] == "signal"
+
+
 def test_rebuild_idempotent_and_filter(tmp_path):
     db = make(tmp_path)
     db.ensure_strategy("grid", 5000.0)

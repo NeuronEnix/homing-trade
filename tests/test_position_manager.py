@@ -52,6 +52,16 @@ def test_close_books_pnl_and_clears_position():
     assert any(t["action"] == "CLOSE" for t in led.trades)
 
 
+def test_open_records_decision_id_and_regime():
+    cfg = Config()
+    led = MemoryLedger("ma_trend", 5000.0)
+    pm = PositionManager(led, Broker(cfg.fee, cfg.slippage), cfg)
+    pm.open(_Skill(), "LONG", _candle(close=100.0), now_ms=1000,
+            decision_id="d1", regime_at_entry="chop")
+    t = led.trades[-1]
+    assert t["decision_id"] == "d1" and t["regime_at_entry"] == "chop"
+
+
 class _BlockGuard:
     def can_open(self, notional, ts): return (False, "blocked")
     def record_open(self, *a): pass

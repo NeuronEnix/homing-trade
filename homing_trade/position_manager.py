@@ -38,11 +38,12 @@ class PositionManager:
             return None
         return position
 
-    def open(self, skill, side, candle, now_ms, weight=1.0):
+    def open(self, skill, side, candle, now_ms, weight=1.0, *, decision_id=None, regime_at_entry=None):
         """Open a position sized by the Advisor.
 
         Returns (opened, reason): (True, None) on success, or (False, reason) when the
         risk guard blocks it — in which case a 'veto' risk_event is also recorded.
+        decision_id / regime_at_entry are stamped on the OPEN trade for outcome traceability.
         """
         balance = self.ledger.get_balance(skill.name)
         entry_fill = self.broker.fill_price(candle.close, side, is_entry=True)
@@ -61,7 +62,8 @@ class PositionManager:
                        opened_at=candle.time)
         pid = self.ledger.open_position(pos)
         self.ledger.record_trade(skill.name, pid, side, "OPEN", entry_fill, plan.size, fee, -fee, now_ms,
-                                 decision_price=candle.close, slippage=entry_fill - candle.close)
+                                 decision_price=candle.close, slippage=entry_fill - candle.close,
+                                 decision_id=decision_id, regime_at_entry=regime_at_entry)
         return (True, None)
 
     def close(self, skill, position, exit_price, candle, now_ms, exit_reason=None):

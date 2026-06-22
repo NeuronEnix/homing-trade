@@ -43,11 +43,13 @@ class MemoryLedger(Ledger):
         return self._open.get(name)
 
     def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts,
-                     *, decision_price=None, slippage=None, exit_reason=None):
+                     *, decision_price=None, slippage=None, exit_reason=None,
+                     decision_id=None, regime_at_entry=None):
         self.trades.append({"strategy": strategy, "position_id": position_id, "side": side,
                             "action": action, "price": price, "size": size, "fee": fee,
                             "pnl": pnl, "ts": ts, "decision_price": decision_price,
-                            "slippage": slippage, "exit_reason": exit_reason})
+                            "slippage": slippage, "exit_reason": exit_reason,
+                            "decision_id": decision_id, "regime_at_entry": regime_at_entry})
 
     def record_equity(self, strategy, equity, ts):
         self.equity_curve.append((ts, equity))
