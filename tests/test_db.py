@@ -94,6 +94,16 @@ def test_migrate_skips_already_applied_version(tmp_path, monkeypatch):
     assert db.schema_version() == 1
 
 
+def test_closed_pnls_and_equity_series(tmp_path):
+    db = make_db(tmp_path)
+    db.ensure_strategy("ma_trend", 5000.0)
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 110.0, 1.0, 0.1, 9.9, 2000)
+    db.record_equity("ma_trend", 5010.0, 2000)
+    assert db.closed_pnls("ma_trend") == [9.9]      # excludes the OPEN row
+    assert db.equity_series("ma_trend") == [5010.0]
+
+
 def test_migrate_atomic_rolls_back_partial(tmp_path, monkeypatch):
     # A version whose later statement fails must leave NO partial DDL and NOT bump the version.
     import homing_trade.db as dbmod

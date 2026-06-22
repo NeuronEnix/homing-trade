@@ -11,16 +11,16 @@ How to read this file: phases are in priority order (Phase 1 = most urgent). Che
 ## Phase 1 — Structural foundation (kill the god-files, harden module boundaries)
 Goal: make the autonomous loop safe to operate and later self-modify by giving every concern a sharp module boundary.
 
-- [ ] Introduce a `repository.py` layer that wraps `db.py`: typed read/write methods so `engine.py`, `web.py`, `report.py`, `backtest.py`, `daemon.py` stop importing `Database` and issuing raw SQL directly (audit flagged this 5-way coupling).
-- [ ] Define a `Ledger` ABC (new `ledger_base.py`) and make both `ledger.MemoryLedger` and the SQLite-backed repository implement it, replacing the current duck-typed interface.
+- [ ] Introduce a `repository.py` layer that wraps `db.py`: typed read/write methods so `engine.py`, `web.py`, `report.py`, `backtest.py`, `daemon.py` stop importing `Database` and issuing raw SQL directly (audit flagged this 5-way coupling). _(repository.py landed + `report.py` migrated; engine/web/backtest/daemon pending)_
+- [x] Define a `Ledger` ABC (new `ledger_base.py`) and make both `ledger.MemoryLedger` and the SQLite-backed repository implement it, replacing the current duck-typed interface. _(ledger_base.Ledger; MemoryLedger + Repository both implement it)_
 - [ ] Decompose `engine.py` (228 lines, fan-out 9): extract `SkillRunner` (build/run skills), `PositionManager` (`_open_position`/`_close_position`/stop/liquidation), and keep `engine.run` as a thin orchestration loop. `process_tick` should call into these, not inline the logic.
 - [ ] Split decision-logic (`Strategy.on_candle` → action+confidence) from execution-plumbing (leverage, `risk_pct`, `stop_pct`, sizing) so a skill never reaches into `cfg` for sizing; introduce a small `Advisor`/sizing helper called by `PositionManager`.
 - [ ] Extract the embedded HTML in `web.py` (335 lines) into a `web_assets/` template + a thin `build_state()` that calls the repository, not raw queries.
 - [x] Add `PRAGMA`/index review in the repository: indexes on `decision_log(strategy, ts)`, `llm_responses(strategy, ts)`, `trades(strategy, ts)`, `trades(position_id)` for cheap reflection joins (keep existing WAL). _(db.py MIGRATIONS v1)_
 - [x] Add `schema_version` to the `state` table + a tiny forward-only `migrate()` run at `Database.__init__`; every schema change bumps it (foundation for safe self-modification later). _(db.py `_migrate()` + `SCHEMA_VERSION`)_
-- [ ] Keep all of the above behind passing tests: extend `test_engine.py`, `test_db.py`, `test_web.py`; add `test_repository.py`.
+- [ ] Keep all of the above behind passing tests: extend `test_engine.py`, `test_db.py`, `test_web.py`; add `test_repository.py`. _(test_repository.py + test_ledger_base.py added; more as callers migrate)_
 
-Progress: 2/8
+Progress: 3/8
 
 ---
 
