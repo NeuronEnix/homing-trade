@@ -30,9 +30,9 @@ class Config:
     # AI traders — two INDEPENDENT Claude brains, each toggled + paced on its own.
     # If both are enabled they run side by side (separate wallets) so you can compare them.
     ai_claude_code_enabled: bool = False    # backend: local `claude` CLI (uses Claude Code, no API key)
-    ai_claude_code_poll_min: int = 60       # how often it consults Claude (minutes)
+    ai_claude_code_poll_sec: int = 3600     # how often it consults Claude (seconds)
     ai_anthropic_enabled: bool = False      # backend: Anthropic API (needs ANTHROPIC_API_KEY)
-    ai_anthropic_poll_min: int = 15
+    ai_anthropic_poll_sec: int = 900
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -116,9 +116,9 @@ def from_env(base=None, *, dotenv_path=".env"):
         alert_mode=_s("HT_ALERT_MODE", cfg.alert_mode),
         llm_model=_s("HT_LLM_MODEL", cfg.llm_model),
         ai_claude_code_enabled=_b("AI_CLAUDE_CODE_IS_ENABLED", cfg.ai_claude_code_enabled),
-        ai_claude_code_poll_min=_i("AI_CLAUDE_CODE_POLL_IN_MIN", cfg.ai_claude_code_poll_min),
+        ai_claude_code_poll_sec=_i("AI_CLAUDE_CODE_POLL_IN_SEC", cfg.ai_claude_code_poll_sec),
         ai_anthropic_enabled=_b("AI_ANTHROPIC_IS_ENABLED", cfg.ai_anthropic_enabled),
-        ai_anthropic_poll_min=_i("AI_ANTHROPIC_POLL_IN_MIN", cfg.ai_anthropic_poll_min),
+        ai_anthropic_poll_sec=_i("AI_ANTHROPIC_POLL_IN_SEC", cfg.ai_anthropic_poll_sec),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 

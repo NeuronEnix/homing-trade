@@ -137,10 +137,10 @@ separate wallets**, so you can compare them on the leaderboard:
 ```bash
 # Brain 1 — Claude Code CLI (no API key)
 AI_CLAUDE_CODE_IS_ENABLED=true
-AI_CLAUDE_CODE_POLL_IN_MIN=60
+AI_CLAUDE_CODE_POLL_IN_SEC=3600
 # Brain 2 — Anthropic API
 AI_ANTHROPIC_IS_ENABLED=false
-AI_ANTHROPIC_POLL_IN_MIN=15
+AI_ANTHROPIC_POLL_IN_SEC=900
 ANTHROPIC_API_KEY=sk-ant-...
 HT_LLM_MODEL=claude-opus-4-8    # model both brains use (claude-haiku-4-5 to cut cost)
 ```
