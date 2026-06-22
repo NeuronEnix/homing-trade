@@ -48,10 +48,9 @@ class Repository(Ledger):
         # Passthrough so the provenance kwargs (decision_id, intended/taken_action, …) flow to Database.
         return self.db.log_decision(*args, **kwargs)
 
-    def record_llm_response(self, strategy, ts, backend, model, action, confidence,
-                            observation, prediction, rationale, raw, error):
-        return self.db.record_llm_response(strategy, ts, backend, model, action, confidence,
-                                           observation, prediction, rationale, raw, error)
+    def record_llm_response(self, *args, **kwargs):
+        # Passthrough so the replay kwargs (next_check_in_sec, requested_charts, …) reach Database.
+        return self.db.record_llm_response(*args, **kwargs)
 
     def latest_llm_rationale(self, strategy):
         return self.db.latest_llm_rationale(strategy)

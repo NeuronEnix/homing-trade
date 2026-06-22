@@ -83,7 +83,9 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
             db.record_llm_response(skill.name, now_ms, getattr(skill, "backend", ""),
                                    getattr(skill, "model", ""), signal.action, signal.confidence,
                                    m.get("observation", ""), m.get("prediction", ""),
-                                   m.get("rationale", ""), signal.raw or "", signal.error or "")
+                                   m.get("rationale", ""), signal.raw or "", signal.error or "",
+                                   next_check_in_sec=m.get("next_check_in_sec"),
+                                   requested_charts=m.get("requested_charts"))
         # 2c. alert on an AI error (deduped so a persistent failure doesn't spam Discord)
         if signal.error and notifier is not None:
             if getattr(skill, "_last_alerted_error", None) != signal.error:
