@@ -200,5 +200,21 @@ class Repository(Ledger):
         return self.db.apply_playbook_proposal(proposal_id, version, strategy, rules,
                                                applied_by, now_ms)
 
+    # --- Phase-7 #4/#5 A/B experiments ---
+    def create_experiment(self, *args, **kwargs):
+        return self.db.create_experiment(*args, **kwargs)
+
+    def conclude_experiment(self, *args, **kwargs):
+        return self.db.conclude_experiment(*args, **kwargs)
+
+    def get_experiment(self, experiment_id):
+        return self.db.get_experiment(experiment_id)
+
+    def list_experiments(self, *, status=None):
+        return self.db.list_experiments(status=status)
+
+    def experiment_search_budget(self, start_ts, end_ts):
+        return self.db.experiment_search_budget(start_ts, end_ts)
+
     def close(self):
         return self.db.close()
