@@ -394,6 +394,14 @@ class Database:
             "SELECT strategy, action, confidence, reason, ts FROM decision_log ORDER BY id DESC LIMIT ?",
             (limit,))]
 
+    def taken_action_counts(self, strategy):
+        """How many decisions resolved to each taken_action (LONG/HOLD/BLOCKED/PAUSED/...)."""
+        rows = self.conn.execute(
+            "SELECT taken_action, COUNT(*) AS n FROM decision_log "
+            "WHERE strategy=? AND taken_action IS NOT NULL GROUP BY taken_action",
+            (strategy,)).fetchall()
+        return {r["taken_action"]: int(r["n"]) for r in rows}
+
     def reset_paper_ledger(self):
         """Wipe the paper ledger (wallets/positions/trades/equity/decisions/llm + strategies)
         and the last-candle cursor. Cached candles are kept."""
