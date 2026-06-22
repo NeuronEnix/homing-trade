@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -214,6 +214,15 @@ MIGRATIONS = {
             source_reflection_id INTEGER
         )""",
         "CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status, created_ts)",
+    ],
+    # v9: the APPLY step's provenance — when an approved proposal's change was actually applied,
+    # by whom, and the result (e.g. the published playbook version). `status` stays 'approved'
+    # (the human's decision); `applied_ts` is the distinct fact that the change took effect, so
+    # an approved-but-not-yet-applied proposal is observable and apply stays idempotent.
+    9: [
+        "ALTER TABLE proposals ADD COLUMN applied_ts INTEGER",
+        "ALTER TABLE proposals ADD COLUMN applied_by TEXT",
+        "ALTER TABLE proposals ADD COLUMN applied_result TEXT",
     ],
 }
 
@@ -865,6 +874,52 @@ class Database:
             (status, decided_by, decided_ts, proposal_id))
         self.conn.commit()
         return cur.rowcount > 0
+
+    def apply_playbook_proposal(self, proposal_id, version, strategy, rules, applied_by, now_ms):
+        """Apply an approved playbook proposal ATOMICALLY: publish the new immutable version,
+        retire the strategy's currently-active version (recording true lineage), and stamp the
+        proposal applied — all in ONE transaction. So the change and its provenance are
+        all-or-nothing: never a published-but-unmarked version (which a retry would mis-read as
+        'already exists') nor a marked-but-unpublished row. Re-verifies inside the txn (under a
+        write lock) that the proposal is still approved + un-applied, so a concurrent apply can't
+        double it. Returns the published version, or None if the row was no longer applicable.
+        Raises sqlite3.IntegrityError only on a duplicate version (PK) — strategy is validated by
+        the caller, so this is unambiguous.
+
+        The INSERT/UPDATE shapes here intentionally mirror publish_playbook + retire_playbook +
+        the proposal-mark UPDATE; they're inlined (not reused) only because those methods each
+        self-commit and can't compose into one transaction. Keep them in sync."""
+        prev_isolation = self.conn.isolation_level
+        self.conn.isolation_level = None      # honor explicit BEGIN/COMMIT (match _migrate)
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self.conn.execute(
+                    "SELECT status, applied_ts FROM proposals WHERE id=?", (proposal_id,)).fetchone()
+                if row is None or row["status"] != "approved" or row["applied_ts"] is not None:
+                    self.conn.execute("ROLLBACK")
+                    return None
+                cur = self.conn.execute(
+                    "SELECT version FROM playbooks WHERE strategy=? AND retired_ts IS NULL "
+                    "ORDER BY created_ts DESC, rowid DESC LIMIT 1", (strategy,)).fetchone()
+                parent = cur["version"] if cur else None
+                self.conn.execute(
+                    "INSERT INTO playbooks(version, strategy, created_ts, rules_json, parent_version) "
+                    "VALUES(?,?,?,?,?)",
+                    (version, strategy, now_ms, json.dumps({"rules": rules}), parent))
+                if parent and parent != version:
+                    self.conn.execute("UPDATE playbooks SET retired_ts=? WHERE version=?",
+                                      (now_ms, parent))
+                self.conn.execute(
+                    "UPDATE proposals SET applied_ts=?, applied_by=?, applied_result=? WHERE id=?",
+                    (now_ms, applied_by, version, proposal_id))
+                self.conn.execute("COMMIT")
+                return version
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+        finally:
+            self.conn.isolation_level = prev_isolation
 
     def table_names(self) -> set:
         """Names of all real tables in the live DB (excludes SQLite internals). Used by the
