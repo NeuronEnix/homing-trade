@@ -120,26 +120,85 @@ def _drain_commands(db, broker, skills, candle, commands):
                     pm.close(sk, pos, candle.close, candle, now_ms)
 
 
+class SkillRunner:
+    """Builds the strategy roster and runs it each tick.
+
+    Owns what used to be inline in engine.run: building the mechanical skills + AI traders,
+    ensuring each has a wallet, and per-tick execution — mechanical skills act once per NEW
+    candle (candle-driven); AI traders run every cycle on their own wall-clock cadence. Also
+    emits trade alerts (with the AI's rationale) through the notifier. engine.run is left a
+    thin fetch/sleep loop that drives this.
+    """
+
+    def __init__(self, cfg, ledger, broker, guard=None, notifier=None):
+        self.cfg = cfg
+        self.ledger = ledger
+        self.broker = broker
+        self.guard = guard
+        self.notifier = notifier
+        self.mech_skills = build_skills(cfg.enabled_skills, cfg)
+        self.ai_traders = build_ai_traders(cfg)
+        self.skills = self.mech_skills + self.ai_traders
+        for s in self.skills:
+            ledger.ensure_strategy(s.name, cfg.starting_balance)
+        self._ai_names = {t.name for t in self.ai_traders}
+        # Only alert on trades from now on (skip everything already in the ledger).
+        self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
+
+    def run_tick(self, candles, *, is_paused=None, commands=None):
+        candle = candles[-1]
+        newest = str(candle.time)
+        # Manual UI commands (e.g. exit a trade) run here, in the DB-owning thread.
+        _drain_commands(self.ledger, self.broker, self.skills, candle, commands)
+        # Mechanical skills: only on a genuinely new candle (candle-driven).
+        if self.mech_skills and self.ledger.get_state("last_candle_time") != newest:
+            process_tick(self.ledger, self.broker, self.mech_skills, candles,
+                         self.cfg, self.guard, None, is_paused)
+            self.ledger.set_state("last_candle_time", newest)
+        # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
+        # The notifier lets a Claude/CLI error ping Discord (deduped inside process_tick).
+        if self.ai_traders:
+            process_tick(self.ledger, self.broker, self.ai_traders, candles,
+                         self.cfg, self.guard, self.notifier, is_paused)
+        self._emit_trade_alerts()
+
+    def _emit_trade_alerts(self):
+        if self.notifier is None:
+            return
+        for t in self.ledger.trades_after(self.last_alert_id):
+            msg = f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}"
+            if t["strategy"] in self._ai_names:   # show WHY for AI trades
+                why = self.ledger.latest_llm_rationale(t["strategy"])
+                if why:
+                    msg += f"\n💡 {why[:280]}"
+            self.notifier.notify("trade", f"{t['strategy']} {t['action']}", msg)
+            self.last_alert_id = t["id"]
+
+    def save(self):
+        """Persist any stateful skills (e.g. the RL Q-table) on shutdown."""
+        for s in self.skills:
+            if hasattr(s, "save"):
+                try:
+                    s.save()
+                except Exception:
+                    pass
+
+
+def _make_guard(cfg):
+    """A DailyRiskGuard only when limits are configured (or trading is disabled); else None."""
+    if (getattr(cfg, "max_daily_loss", 0) > 0 or getattr(cfg, "max_trade_amount_per_day", 0) > 0
+            or not getattr(cfg, "trading_enabled", True)):
+        return DailyRiskGuard.from_config(cfg)
+    return None
+
+
 def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None,
         should_stop=None, is_paused=None, commands=None):
     sleeper = sleeper or time.sleep
     repo = Repository.open(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
-    # Mechanical skills act once per new candle; AI traders run every cycle on their own
-    # wall-clock cadence (so they can poll faster than the candle interval). Both independent.
-    mech_skills = build_skills(cfg.enabled_skills, cfg)
-    ai_traders = build_ai_traders(cfg)
-    skills = mech_skills + ai_traders
-    for s in skills:
-        repo.ensure_strategy(s.name, cfg.starting_balance)
-    last_alert_id = 0
-    if notifier is not None:
-        last_alert_id = repo.max_trade_id()
-    # Risk guard is active only when limits are configured; otherwise None (no overhead).
-    guard = None
-    if (getattr(cfg, "max_daily_loss", 0) > 0 or getattr(cfg, "max_trade_amount_per_day", 0) > 0
-            or not getattr(cfg, "trading_enabled", True)):
-        guard = DailyRiskGuard.from_config(cfg)
+    guard = _make_guard(cfg)
+    runner = SkillRunner(cfg, repo, broker, guard=guard, notifier=notifier)
     ticks = 0
     try:
         while max_ticks is None or ticks < max_ticks:
@@ -152,27 +211,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                 candles = []
             if candles:
                 repo.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
-                newest = str(candles[-1].time)
-                # Manual commands from the UI (e.g. exit a trade) run here, in this thread.
-                _drain_commands(repo, broker, skills, candles[-1], commands)
-                # Mechanical skills: only on a genuinely new candle (candle-driven).
-                if mech_skills and repo.get_state("last_candle_time") != newest:
-                    process_tick(repo, broker, mech_skills, candles, cfg, guard, None, is_paused)
-                    repo.set_state("last_candle_time", newest)
-                # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
-                # Pass the notifier so a Claude/CLI error pings Discord (deduped in process_tick).
-                if ai_traders:
-                    process_tick(repo, broker, ai_traders, candles, cfg, guard, notifier, is_paused)
-                ai_names = {t.name for t in ai_traders}
-                if notifier is not None:
-                    for t in repo.trades_after(last_alert_id):
-                        msg = f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}"
-                        if t["strategy"] in ai_names:   # show WHY for AI trades
-                            why = repo.latest_llm_rationale(t["strategy"])
-                            if why:
-                                msg += f"\n💡 {why[:280]}"
-                        notifier.notify("trade", f"{t['strategy']} {t['action']}", msg)
-                        last_alert_id = t["id"]
+                runner.run_tick(candles, is_paused=is_paused, commands=commands)
                 # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
                 if guard is not None and guard.halted_reason:
                     if notifier is not None:
@@ -183,12 +222,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
             if max_ticks is None or ticks < max_ticks:
                 sleeper(cfg.poll_seconds)
     finally:
-        for s in skills:
-            if hasattr(s, "save"):
-                try:
-                    s.save()
-                except Exception:
-                    pass
+        runner.save()
         repo.close()
 
 
