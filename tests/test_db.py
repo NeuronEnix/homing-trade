@@ -1,4 +1,5 @@
-from homing_trade.db import Database
+import pytest
+from homing_trade.db import Database, SCHEMA_VERSION
 from homing_trade.models import Position
 
 
@@ -46,3 +47,64 @@ def test_records_do_not_raise(tmp_path):
     db.record_trade("grid", None, "LONG", "OPEN", 100.0, 0.5, 0.05, 0.0, 1000)
     db.record_equity("grid", 5000.0, 1000)
     db.log_decision("grid", 1000, 999, "HOLD", 0.0, "no signal", {"rsi": 55})
+
+
+def test_schema_version_set_on_init(tmp_path):
+    db = make_db(tmp_path)
+    assert db.schema_version() == SCHEMA_VERSION
+
+
+def test_migrations_create_reflection_indexes(tmp_path):
+    db = make_db(tmp_path)
+    names = {r["name"] for r in db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+    for idx in ("idx_decision_log_strategy_ts", "idx_llm_responses_strategy_ts",
+                "idx_trades_strategy_ts", "idx_trades_position_id"):
+        assert idx in names
+
+
+def test_migrate_idempotent_on_reopen(tmp_path):
+    p = str(tmp_path / "mig.db")
+    Database(p).close()                 # first init migrates to head
+    db = Database(p)                    # re-open must not error and stays at head
+    assert db.schema_version() == SCHEMA_VERSION
+
+
+def test_migrate_upgrades_legacy_db(tmp_path):
+    # Simulate a pre-migration DB: no schema_version row, missing a v1 index.
+    db = make_db(tmp_path)
+    db.conn.execute("DELETE FROM state WHERE key='schema_version'")
+    db.conn.execute("DROP INDEX IF EXISTS idx_trades_position_id")
+    db.conn.commit()
+    assert db.schema_version() == 0
+    db._migrate()
+    assert db.schema_version() == SCHEMA_VERSION
+    names = {r["name"] for r in db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+    assert "idx_trades_position_id" in names
+
+
+def test_migrate_skips_already_applied_version(tmp_path, monkeypatch):
+    # The `ver > current` guard must NOT re-run an applied migration: swap v1 for SQL
+    # that would explode if executed, then confirm _migrate is a clean no-op at head.
+    import homing_trade.db as dbmod
+    db = make_db(tmp_path)  # already at head (v1)
+    monkeypatch.setitem(dbmod.MIGRATIONS, 1, ["THIS WOULD FAIL IF EXECUTED"])
+    db._migrate()
+    assert db.schema_version() == 1
+
+
+def test_migrate_atomic_rolls_back_partial(tmp_path, monkeypatch):
+    # A version whose later statement fails must leave NO partial DDL and NOT bump the version.
+    import homing_trade.db as dbmod
+    db = make_db(tmp_path)  # at head (v1)
+    monkeypatch.setitem(dbmod.MIGRATIONS, 2, [
+        "CREATE INDEX IF NOT EXISTS idx_tmp_v2 ON trades(fee)",  # would succeed alone
+        "CREATE INDEX bad_syntax ON",                            # broken -> rolls back whole v2
+    ])
+    with pytest.raises(Exception):
+        db._migrate()
+    assert db.schema_version() == 1
+    names = {r["name"] for r in db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+    assert "idx_tmp_v2" not in names

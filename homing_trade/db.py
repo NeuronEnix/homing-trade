@@ -84,6 +84,28 @@ CREATE TABLE IF NOT EXISTS candles (
 );
 """
 
+# Forward-only schema migrations. The base SCHEMA above (CREATE ... IF NOT EXISTS)
+# bootstraps a fresh DB; MIGRATIONS carry every change made after that initial schema
+# so existing databases evolve in place. Each migration is idempotent DDL keyed by an
+# integer version; state['schema_version'] records how far a given DB has been migrated.
+# To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
+# edit a released migration or renumber the existing ones.
+SCHEMA_VERSION = 1
+
+# Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
+# statements of a version PLUS its schema_version bump inside one transaction, so a failure
+# rolls the whole version back rather than leaving the DB half-migrated. Keep statements
+# idempotent (IF NOT EXISTS) anyway as belt-and-braces.
+MIGRATIONS = {
+    # v1: indexes that make the reflection / leaderboard joins cheap (Phase 2 reads these hot).
+    1: [
+        "CREATE INDEX IF NOT EXISTS idx_decision_log_strategy_ts ON decision_log(strategy, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_llm_responses_strategy_ts ON llm_responses(strategy, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_strategy_ts ON trades(strategy, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_position_id ON trades(position_id)",
+    ],
+}
+
 
 class Database:
     def __init__(self, path: str):
@@ -99,6 +121,44 @@ class Database:
             pass
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Apply forward-only migrations this DB hasn't seen yet.
+
+        Each version's statements and its schema_version bump commit atomically
+        (explicit BEGIN/COMMIT, ROLLBACK on error), so a failed migration leaves the
+        DB at its previous version with no partial DDL applied. SQLite DDL is
+        transactional, which makes the rollback real.
+        """
+        row = self.conn.execute("SELECT value FROM state WHERE key='schema_version'").fetchone()
+        current = int(row["value"]) if row else 0
+        pending = [v for v in sorted(MIGRATIONS) if v > current]
+        if not pending:
+            return
+        prev_isolation = self.conn.isolation_level
+        self.conn.isolation_level = None  # honor our explicit BEGIN/COMMIT (no implicit txn)
+        try:
+            for ver in pending:
+                try:
+                    self.conn.execute("BEGIN")
+                    for stmt in MIGRATIONS[ver]:
+                        self.conn.execute(stmt)
+                    self.conn.execute(
+                        "INSERT INTO state(key, value) VALUES('schema_version', ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (str(ver),),
+                    )
+                    self.conn.execute("COMMIT")
+                except Exception:
+                    self.conn.execute("ROLLBACK")
+                    raise
+        finally:
+            self.conn.isolation_level = prev_isolation
+
+    def schema_version(self) -> int:
+        row = self.conn.execute("SELECT value FROM state WHERE key='schema_version'").fetchone()
+        return int(row["value"]) if row else 0
 
     def ensure_strategy(self, name: str, starting_balance: float) -> None:
         cur = self.conn.cursor()
