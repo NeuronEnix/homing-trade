@@ -1,23 +1,17 @@
 from homing_trade.config import CONFIG
-from homing_trade.db import Database
+from homing_trade.repository import Repository
 
 
-def compute_stats(db: Database, strategy: str, starting_balance: float) -> dict:
-    closed = db.conn.execute(
-        "SELECT pnl FROM trades WHERE strategy=? AND action='CLOSE'", (strategy,)
-    ).fetchall()
-    pnls = [float(r["pnl"]) for r in closed]
+def compute_stats(repo: Repository, strategy: str, starting_balance: float) -> dict:
+    pnls = repo.closed_pnls(strategy)
     wins = sum(1 for p in pnls if p > 0)
     losses = sum(1 for p in pnls if p < 0)
     trades = len(pnls)
     realized = sum(pnls)
     win_rate = (wins / trades) if trades else 0.0
 
-    eq_rows = db.conn.execute(
-        "SELECT equity FROM equity WHERE strategy=? ORDER BY ts ASC", (strategy,)
-    ).fetchall()
-    curve = [float(r["equity"]) for r in eq_rows]
-    equity = curve[-1] if curve else db.get_balance(strategy)
+    curve = repo.equity_series(strategy)
+    equity = curve[-1] if curve else repo.get_balance(strategy)
 
     peak = starting_balance
     max_dd = 0.0
@@ -39,8 +33,8 @@ def compute_stats(db: Database, strategy: str, starting_balance: float) -> dict:
     }
 
 
-def leaderboard(db: Database, strategies: list[str], starting_balance: float) -> list[dict]:
-    rows = [compute_stats(db, s, starting_balance) for s in strategies]
+def leaderboard(repo: Repository, strategies: list[str], starting_balance: float) -> list[dict]:
+    rows = [compute_stats(repo, s, starting_balance) for s in strategies]
     rows.sort(key=lambda r: r["equity"], reverse=True)
     return rows
 
@@ -57,12 +51,12 @@ def format_leaderboard(rows: list[dict]) -> str:
 
 
 def main(cfg=CONFIG) -> None:
-    db = Database(cfg.db_path)
+    repo = Repository.open(cfg.db_path)
     try:
-        rows = leaderboard(db, cfg.enabled_skills, cfg.starting_balance)
+        rows = leaderboard(repo, cfg.enabled_skills, cfg.starting_balance)
         print(format_leaderboard(rows))
     finally:
-        db.close()
+        repo.close()
 
 
 if __name__ == "__main__":

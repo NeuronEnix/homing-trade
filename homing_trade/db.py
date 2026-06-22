@@ -312,6 +312,20 @@ class Database:
             (strategy, limit)).fetchall()
         return [float(r["pnl"]) for r in rows]
 
+    def closed_pnls(self, strategy):
+        """All realized PnLs for CLOSE trades, oldest-first (win/loss + drawdown stats)."""
+        rows = self.conn.execute(
+            "SELECT pnl FROM trades WHERE strategy=? AND action='CLOSE' ORDER BY id ASC",
+            (strategy,)).fetchall()
+        return [float(r["pnl"]) for r in rows]
+
+    def equity_series(self, strategy):
+        """Equity snapshots for a strategy, oldest-first."""
+        rows = self.conn.execute(
+            "SELECT equity FROM equity WHERE strategy=? ORDER BY ts ASC",
+            (strategy,)).fetchall()
+        return [float(r["equity"]) for r in rows]
+
     def trades_after(self, last_id):
         rows = self.conn.execute(
             "SELECT id, strategy, side, action, price, size, pnl FROM trades WHERE id>? ORDER BY id ASC",

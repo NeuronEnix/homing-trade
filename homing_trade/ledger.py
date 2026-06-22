@@ -1,10 +1,11 @@
 from homing_trade.models import Position
+from homing_trade.ledger_base import Ledger
 
 
-class MemoryLedger:
-    """In-memory stand-in for Database, matching the method surface that
-    engine.process_tick and its helpers use. Lets the backtester run through
-    the exact live execution path without touching SQLite."""
+class MemoryLedger(Ledger):
+    """In-memory Ledger backend, used by the backtester. Lets the backtester run
+    through the exact live execution path (engine.process_tick) without touching
+    SQLite. Implements the Ledger interface defined in ledger_base."""
 
     def __init__(self, strategy: str, starting_balance: float):
         self.strategy = strategy
