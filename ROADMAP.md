@@ -95,7 +95,7 @@ Progress: 6/6 _(**Phase 5 COMPLETE.** env-discovered provider registry (#1, PR #
 Goal: news/sentiment/derivatives/on-chain signals into the AI context, and an internet scan that FILES new algorithms as candidate strategies (never auto-trading).
 
 - [x] `signals/fng.py`: Alternative.me Fear & Greed (free, no key) → cached table, injected into `llm_trader` context. Wire first. _(fetch_fng (degrade to None on any error) + cache-aware get_fng (serve-fresh / refetch-stale / fallback-to-stale-or-None); injectable fetcher (offline tests). Generic schema-v11 signal_cache(source,key,ts,value_json,fetched_at) — AUDIT-TRUTH, reused by the rest of Phase 6. LlmTrader.fng_provider (wired by SkillRunner when fng_enabled + ledger has a cache) injects ctx["fear_greed"]; _SYSTEM frames it as a contextual gauge (never a standalone trigger); PROMPT_VERSION mtf-v1→mtf-v2. Default ON (keyless); backtests (MemoryLedger) never wire it → no network in tests. v10→v11 verified on a real DB copy. test_signals_fng 13 green; suite 469. Review: SHIP. Cold-cache synchronous fetch noted as #6 hardening)_
-- [ ] `signals/derivs.py`: Binance (then OKX/Bybit) public funding-rate + open-interest; aggregate cross-venue funding skew. No key needed.
+- [x] `signals/derivs.py`: Binance (then OKX/Bybit) public funding-rate + open-interest; aggregate cross-venue funding skew. No key needed. _(fetch_binance (funding + mark + OI; OI best-effort) + a _VENUES tuple OKX/Bybit append to + funding_skew (cross-venue mean/spread) + fetch_derivs (aggregate, None if no venue) + cache-aware get_derivs (serve-fresh/refetch-stale/fallback). Reuses signal_cache (source='derivs', key=symbol) — no schema change. Injected into the AI context as positioning (never a standalone trigger) via a generalized LlmTrader context-provider registry (add_context_provider — the single fng_provider became one entry; all Phase-6 feeds plug in here). PROMPT_VERSION mtf-v2→mtf-v3. Per-trader by its own Binance symbol (no late-binding). Default ON (keyless); backtests never wire it. test_signals_derivs 13 green; suite 482. Review: SHIP. OKX/Bybit venues are the noted follow-on)_
 - [ ] `signals/coindcx.py`: CoinDCX public futures funding/mark/orderbook for the actual traded instrument (source of truth).
 - [ ] `signals/price_ref.py`: CoinGecko Demo reference price/market context to sanity-check CoinDCX (needs Demo key).
 - [ ] Optional `signals/news.py`: RSS-into-LLM as the default news feed (CryptoPanic free tier retires 2026-04-01; do not hard-depend on it).
@@ -103,7 +103,7 @@ Goal: news/sentiment/derivatives/on-chain signals into the AI context, and an in
 - [ ] Candidate-strategy intake: an internet/research scan that writes new algorithm ideas as `proposals(kind='strategy_toggle')` rows for human approval — never auto-enabled.
 - [ ] Tests: `test_signals_*` with injected fetchers (offline, deterministic).
 
-Progress: 1/8 _(#1 Fear & Greed ingestion (PR #56) landed: signals/fng.py + the generic signal_cache (v11) + AI-context injection, all offline-tested. Next: #2 signals/derivs.py — Binance public funding-rate + open-interest (no key), cross-venue funding skew)_
+Progress: 2/8 _(#1 Fear & Greed (PR #56, + the generic signal_cache v11 + AI-context injection) + #2 Binance perp funding/OI (PR #57, + the generalized context-provider registry all feeds reuse) landed. Next: #3 signals/coindcx.py — CoinDCX public futures funding/mark/orderbook for the actual traded instrument (source of truth))_
 
 ---
 
