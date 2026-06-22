@@ -36,7 +36,8 @@ class Ledger(ABC):
 
     @abstractmethod
     def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts,
-                     *, decision_price=None, slippage=None, exit_reason=None) -> None: ...
+                     *, decision_price=None, slippage=None, exit_reason=None,
+                     decision_id=None, regime_at_entry=None) -> None: ...
 
     @abstractmethod
     def record_equity(self, strategy, equity, ts) -> None: ...
