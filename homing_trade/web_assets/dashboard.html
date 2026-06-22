@@ -60,6 +60,8 @@
     <div class="card"><h3>by exit reason</h3><table id="exits"><thead>
       <tr><th>reason</th><th>trades</th><th>total pnl</th><th>avg</th></tr></thead><tbody></tbody></table></div>
   </div>
+  <div><h2>proposal queue <small class="mut">— the AI's suggestions; nothing applies until you approve</small></h2>
+    <div class="card"><div id="proposals" class="logwrap" style="max-height:300px"></div></div></div>
   <div class="grid">
     <div class="card"><h3>recent trades</h3><div class="logwrap"><table id="trades"><thead>
       <tr><th>time</th><th>strategy</th><th>act</th><th>side</th><th>price</th><th>pnl</th></tr></thead><tbody></tbody></table></div></div>
@@ -72,10 +74,25 @@
 const $=s=>document.querySelector(s);
 const fmt=n=>n==null?'—':Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
 const tm=ts=>new Date(ts).toLocaleTimeString();
+// Escape model-authored / free text before it goes into innerHTML. The AI's rationale, playbook
+// rules, observations etc. are untrusted strings (and Phase-6 will ingest external research) —
+// without this, a crafted string could inject script into the operator's localhost dashboard
+// (e.g. self-approving a proposal via the same-origin API).
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>(
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function ctl(action){await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});refresh();}
 async function resetBot(){if(confirm('Reset wipes the paper ledger (wallets, trades, positions). Continue?')){await ctl('reset');}}
 async function closeTrade(s){if(confirm('Exit '+s+' open trade at market?')){await fetch('/api/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:s})});refresh();}}
 async function toggleStrategy(s,enabled){await fetch('/api/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:s,enabled})});refresh();}
+async function decideProposal(id,decision){
+  if(decision==='approve'&&!confirm('Approve & apply proposal #'+id+'? (nothing risk/secret/leverage related can ever be applied)'))return;
+  try{
+    const r=await (await fetch('/api/proposal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,decision})})).json();
+    if(r&&r.ok===false)alert('Could not '+decision+': '+(r.error||'unknown'));
+    else if(r&&r.note)alert('Approved, but not auto-applied: '+r.note);
+  }catch(e){alert('Request failed: '+e);}
+  refresh();
+}
 async function refresh(){
   try{
     const s=await (await fetch('/api/state')).json();
@@ -84,10 +101,11 @@ async function refresh(){
     $('#err').textContent=s.last_error?('engine error: '+s.last_error):'';
     $('#strats').innerHTML=s.strategies.map(card).join('')||'<div class="mut">no strategies yet — click Start</div>';
     $('#trades').querySelector('tbody').innerHTML=s.trades.map(t=>
-      `<tr><td>${tm(t.ts)}</td><td>${t.strategy}</td><td>${t.action}</td><td>${t.side}</td><td>${fmt(t.price)}</td><td class="${t.pnl>=0?'up':'dn'}">${fmt(t.pnl)}</td></tr>`).join('');
+      `<tr><td>${tm(t.ts)}</td><td>${esc(t.strategy)}</td><td>${esc(t.action)}</td><td>${esc(t.side)}</td><td>${fmt(t.price)}</td><td class="${t.pnl>=0?'up':'dn'}">${fmt(t.pnl)}</td></tr>`).join('');
     $('#decisions').querySelector('tbody').innerHTML=s.decisions.map(d=>
-      `<tr><td>${tm(d.ts)}</td><td>${d.strategy}</td><td>${d.action}</td><td class="mut">${(d.reason||'').slice(0,90)}</td></tr>`).join('');
+      `<tr><td>${tm(d.ts)}</td><td>${esc(d.strategy)}</td><td>${esc(d.action)}</td><td class="mut">${esc((d.reason||'').slice(0,90))}</td></tr>`).join('');
     $('#brain').innerHTML=(s.brain_log||[]).map(brainRow).join('')||'<div class="mut">no AI responses yet</div>';
+    $('#proposals').innerHTML=(s.proposals||[]).map(propRow).join('')||'<div class="mut">no proposals yet</div>';
     const rb=s.regime_breakdown||{};
     $('#regimes').querySelector('tbody').innerHTML=Object.keys(rb).map(k=>{const r=rb[k];
       return `<tr><td>${k}</td><td>${r.trades}</td><td>${fmt(r.win_rate*100)}%</td>
@@ -104,13 +122,30 @@ async function refresh(){
 }
 function brainRow(b){
   const conf=b.confidence==null?'':` (${fmt(b.confidence)})`;
-  const next=b.next_check_in_sec?` · next in ${b.next_check_in_sec}s`:'';
-  return `<div class="brainrow"><div class="kv"><span class="b">${b.strategy} <span class="mut">${b.model||b.backend||''}</span></span>
-    <span class="mut">${tm(b.ts)} · ${b.action||'—'}${conf}${next}</span></div>
-    ${b.error?`<div class="err">⚠ ${b.error}</div>`:''}
-    ${b.observation?`<div class="reason"><b>saw:</b> ${b.observation}</div>`:''}
-    ${b.prediction?`<div class="reason"><b>predicts:</b> ${b.prediction}</div>`:''}
-    ${b.rationale?`<div class="reason"><b>why:</b> ${b.rationale}</div>`:''}</div>`;
+  const next=b.next_check_in_sec?` · next in ${esc(b.next_check_in_sec)}s`:'';
+  return `<div class="brainrow"><div class="kv"><span class="b">${esc(b.strategy)} <span class="mut">${esc(b.model||b.backend||'')}</span></span>
+    <span class="mut">${tm(b.ts)} · ${esc(b.action||'—')}${conf}${next}</span></div>
+    ${b.error?`<div class="err">⚠ ${esc(b.error)}</div>`:''}
+    ${b.observation?`<div class="reason"><b>saw:</b> ${esc(b.observation)}</div>`:''}
+    ${b.prediction?`<div class="reason"><b>predicts:</b> ${esc(b.prediction)}</div>`:''}
+    ${b.rationale?`<div class="reason"><b>why:</b> ${esc(b.rationale)}</div>`:''}</div>`;
+}
+function propRow(p){
+  const pending=p.status==='pending';
+  const payloadStr=p.payload
+    ? (p.kind==='playbook'&&Array.isArray(p.payload.rules) ? p.payload.rules.join(' · ') : JSON.stringify(p.payload))
+    : '';
+  const state=p.applied_ts?'applied':p.status;
+  const tag=pending?'':`<span class="tag ${p.status==='rejected'?'off':''}">${esc(state)}</span>`;
+  const id=Number(p.id);   // numeric -> safe to inline into the onclick
+  const right=pending
+    ? `<button class="mini" onclick="decideProposal(${id},'approve')">✔ Approve</button>
+       <button class="mini danger" onclick="decideProposal(${id},'reject')">✕ Reject</button>`
+    : `<span class="mut">${esc(p.decided_by||'')}${p.applied_result?(' → '+esc(p.applied_result)):''}</span>`;
+  return `<div class="brainrow"><div class="kv"><span class="b">#${id} ${esc(p.kind)} <span class="mut">${esc(p.strategy||'')}</span> ${tag}</span>
+    <span>${right}</span></div>
+    ${p.rationale?`<div class="reason"><b>why:</b> ${esc(p.rationale)}</div>`:''}
+    ${payloadStr?`<div class="reason mut">${esc(payloadStr)}</div>`:''}</div>`;
 }
 function spark(arr){
   if(!arr||arr.length<2) return '';
@@ -129,11 +164,11 @@ function card(x){
     :`<div class="pos mut">flat</div>`;
   let ai='';
   if(x.ai){
-    ai=`<div class="reason">${x.ai.error?`<span class="err">⚠ ${x.ai.error}</span>`:''}
-      <b>action:</b> ${x.ai.action} (${fmt(x.ai.confidence)})
-      ${x.ai.observation?`\n<b>saw:</b> ${x.ai.observation}`:''}
-      ${x.ai.prediction?`\n<b>predicts:</b> ${x.ai.prediction}`:''}
-      ${x.ai.rationale?`\n<b>why:</b> ${x.ai.rationale}`:''}</div>`;
+    ai=`<div class="reason">${x.ai.error?`<span class="err">⚠ ${esc(x.ai.error)}</span>`:''}
+      <b>action:</b> ${esc(x.ai.action)} (${fmt(x.ai.confidence)})
+      ${x.ai.observation?`\n<b>saw:</b> ${esc(x.ai.observation)}`:''}
+      ${x.ai.prediction?`\n<b>predicts:</b> ${esc(x.ai.prediction)}`:''}
+      ${x.ai.rationale?`\n<b>why:</b> ${esc(x.ai.rationale)}`:''}</div>`;
   }
   const metrics=`<div class="metrics">
     <div class="kv"><span class="mut">trades</span><span>${x.trades}</span></div>

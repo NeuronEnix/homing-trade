@@ -2,6 +2,7 @@ import json
 import threading
 import time
 import urllib.request
+import urllib.error
 
 from homing_trade.feed import get_prices
 from homing_trade.web import Controller, build_state, make_server
@@ -268,6 +269,161 @@ def test_http_toggle_endpoint(tmp_path):
         server.shutdown()
 
 
+# --- proposal queue (Phase-3 #4 / Phase-4 #7) ---
+def test_build_state_surfaces_proposal_queue(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "pq.db"))
+    db = Database(cfg.db_path)
+    db.ensure_strategy("ma", 5000.0)
+    db.create_proposal("ma", "playbook", {"version": "ma-v1", "rules": ["skip chop"]},
+                       "stops too tight in chop", 1000)
+    db.close()
+
+    class _Ctrl:
+        last_error = None
+        disabled = set()
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    props = st["proposals"]
+    assert len(props) == 1
+    p = props[0]
+    assert p["kind"] == "playbook" and p["strategy"] == "ma" and p["status"] == "pending"
+    assert p["rationale"] == "stops too tight in chop"
+    assert p["payload"]["rules"] == ["skip chop"]       # parsed for the UI
+    json.dumps(st)                                       # JSON-safe
+
+
+def test_controller_approve_applies_playbook(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "ap.db"))
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0)
+    pid = db.create_proposal("ma", "playbook", {"version": "ma-v1", "rules": ["trend only"]},
+                             "why", 1000)
+    db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    res = ctrl.decide_proposal(pid, "approve")
+    assert res["ok"] and res["status"] == "applied" and res["result"] == "ma-v1"
+    repo = Repository.open(cfg.db_path)
+    assert repo.latest_playbook("ma")["version"] == "ma-v1"      # published + active
+    assert repo.get_proposal(pid)["applied_ts"] is not None
+    repo.close()
+
+
+def test_controller_reject_changes_nothing(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "rj.db"))
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0)
+    pid = db.create_proposal("ma", "playbook", {"version": "ma-v1", "rules": ["x"]}, "why", 1000)
+    db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    res = ctrl.decide_proposal(pid, "reject")
+    assert res["ok"] and res["status"] == "rejected"
+    repo = Repository.open(cfg.db_path)
+    assert repo.latest_playbook("ma") is None                    # nothing published
+    assert repo.get_proposal(pid)["status"] == "rejected"
+    repo.close()
+
+
+def test_controller_approve_param_is_approved_but_not_applied(tmp_path):
+    # A param proposal is a legit approval, but apply isn't wired for params yet — the approval
+    # must stand (status approved) while clearly reporting it wasn't auto-applied.
+    cfg = Config(db_path=str(tmp_path / "pa.db"))
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0)
+    pid = db.create_proposal("ma", "param", {"ema_period": 34}, "tune", 1000)
+    db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    res = ctrl.decide_proposal(pid, "approve")
+    assert res["ok"] and res["status"] == "approved" and res["applied"] is False and res["note"]
+    repo = Repository.open(cfg.db_path)
+    assert repo.get_proposal(pid)["status"] == "approved"
+    assert repo.get_proposal(pid)["applied_ts"] is None
+    repo.close()
+
+
+def test_controller_decide_unknown_decision_rejected(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "ud.db"))
+    Database(cfg.db_path).close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    assert ctrl.decide_proposal(1, "maybe")["ok"] is False
+
+
+def test_controller_decide_nonexistent_and_nonpending(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "ne.db"))
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0)
+    pid = db.create_proposal("ma", "playbook", {"version": "v1", "rules": ["x"]}, "w", 1000)
+    db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    assert ctrl.decide_proposal(999, "approve")["ok"] is False        # nonexistent -> not pending
+    ctrl.decide_proposal(pid, "reject")                                # decide it once
+    assert ctrl.decide_proposal(pid, "reject")["status"] == "not_pending"  # re-reject is a no-op
+    assert ctrl.decide_proposal(pid, "approve")["ok"] is False         # can't approve a rejected one
+
+
+def test_dashboard_escapes_model_text_to_prevent_injection():
+    # The AI's rationale/rules are untrusted text rendered into innerHTML; the dashboard must
+    # escape them (esc helper) so a crafted string can't inject script into the operator's UI.
+    from homing_trade.web import DASHBOARD_HTML
+    assert "const esc=" in DASHBOARD_HTML
+    assert "${esc(p.rationale)}" in DASHBOARD_HTML        # proposal text escaped
+    assert "${esc(b.rationale)}" in DASHBOARD_HTML        # brain-log text escaped
+    # regression guard: no model-authored field interpolated WITHOUT esc()
+    for bad in ("${p.rationale}", "${b.rationale}", "${b.observation}", "${b.prediction}",
+                "${x.ai.rationale}", "${p.strategy||''}"):
+        assert bad not in DASHBOARD_HTML, f"unescaped model text: {bad}"
+
+
+def test_http_proposal_rejects_bool_id(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "bid.db"), web_port=0)
+    Database(cfg.db_path).close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    server = make_server(cfg, ctrl)
+    port = server.server_address[1]
+    t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/proposal",
+            data=json.dumps({"id": True, "decision": "approve"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "expected 400"
+        except urllib.error.HTTPError as e:
+            assert e.code == 400                          # bool id must not resolve to id 1
+    finally:
+        server.shutdown()
+
+
+def test_http_proposal_endpoint_approve_applies(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "hp.db"), web_port=0)
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0)
+    pid = db.create_proposal("ma", "playbook", {"version": "ma-v1", "rules": ["trend only"]},
+                             "why", 1000)
+    db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    server = make_server(cfg, ctrl)
+    port = server.server_address[1]
+    t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/proposal",
+            data=json.dumps({"id": pid, "decision": "approve"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        resp = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        assert resp["ok"] and resp["status"] == "applied"
+        # bad input -> 400
+        bad = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/proposal",
+            data=json.dumps({"decision": "approve"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            urllib.request.urlopen(bad, timeout=5)
+            assert False, "expected 400"
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
+    finally:
+        server.shutdown()
+    repo = Repository.open(cfg.db_path)
+    assert repo.latest_playbook("ma")["version"] == "ma-v1"
+    repo.close()
+
+
 # --- HTTP smoke ---
 def test_http_server_serves_state(tmp_path):
     cfg = Config(db_path=str(tmp_path / "h.db"), web_port=0)
@@ -292,3 +448,6 @@ def test_dashboard_html_loaded_from_asset():
     assert len(DASHBOARD_HTML) > 1000
     assert "<!doctype html>" in DASHBOARD_HTML.lower()
     assert "homing-trade" in DASHBOARD_HTML and "/api/state" in DASHBOARD_HTML
+    # proposal-queue UI is wired (Phase-3 #4): the panel + the approve/reject action
+    assert "/api/proposal" in DASHBOARD_HTML and "decideProposal" in DASHBOARD_HTML
+    assert "proposal queue" in DASHBOARD_HTML
