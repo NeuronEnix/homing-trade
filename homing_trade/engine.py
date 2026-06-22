@@ -9,6 +9,7 @@ from homing_trade.repository import Repository
 from homing_trade.broker import Broker
 from homing_trade.feed import get_candles
 from homing_trade.position_manager import PositionManager
+from homing_trade.skills.indicators import classify_regime
 from homing_trade.skills.ma_trend import MaTrend
 from homing_trade.skills.rsi_revert import RsiRevert
 from homing_trade.skills.grid import Grid
@@ -65,6 +66,10 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
     paused = bool(is_paused and is_paused())  # when paused: manage/close existing, open nothing new
     pm = PositionManager(db, broker, cfg, guard)
+    # Tag this tick's market context once; every decision in the loop is stamped with it.
+    reg = classify_regime(candles)
+    db.record_regime(cfg.pair_candles, cfg.interval, candle.time,
+                     reg["regime"], reg["adx"], reg["ema_slope"], reg["realized_vol"])
     if getattr(cfg, "allocator_enabled", False):
         perf = {s.name: recent_performance(db, s.name, cfg.allocator_lookback) for s in skills}
         weights = compute_allocations(perf)
@@ -108,7 +113,8 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         db.log_decision(skill.name, now_ms, candle.time, signal.action, signal.confidence,
                         signal.reason, signal.indicators, decision_id=decision_id,
                         intended_action=signal.action, taken_action=taken_action,
-                        rejection_rationale=rejection)
+                        rejection_rationale=rejection, regime=reg["regime"],
+                        realized_vol=reg["realized_vol"])
         # 4. equity snapshot
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0

@@ -118,5 +118,11 @@ class Repository(Ledger):
     def recent_risk_events(self, limit=50):
         return self.db.recent_risk_events(limit)
 
+    def record_regime(self, pair, interval, time, regime, adx=None, ema_slope=None, realized_vol=None):
+        return self.db.record_regime(pair, interval, time, regime, adx, ema_slope, realized_vol)
+
+    def latest_regime(self, pair, interval):
+        return self.db.latest_regime(pair, interval)
+
     def close(self):
         return self.db.close()

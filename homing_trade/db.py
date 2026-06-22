@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -133,6 +133,14 @@ MIGRATIONS = {
         " id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, strategy TEXT,"
         " kind TEXT NOT NULL, reason TEXT, notional REAL)",
         "CREATE INDEX IF NOT EXISTS idx_risk_events_ts ON risk_events(ts)",
+    ],
+    # v3: forward-only market-regime time series (one row per pair/interval/candle time),
+    # computed at decision time from indicators.classify_regime.
+    3: [
+        "CREATE TABLE IF NOT EXISTS regimes ("
+        " pair TEXT NOT NULL, interval TEXT NOT NULL, time INTEGER NOT NULL,"
+        " regime TEXT, adx REAL, ema_slope REAL, realized_vol REAL,"
+        " PRIMARY KEY (pair, interval, time))",
     ],
 }
 
@@ -431,6 +439,23 @@ class Database:
         return [dict(r) for r in self.conn.execute(
             "SELECT ts, strategy, kind, reason, notional FROM risk_events ORDER BY id DESC LIMIT ?",
             (limit,))]
+
+    def record_regime(self, pair, interval, time, regime, adx=None, ema_slope=None, realized_vol=None):
+        """Upsert the market regime for a (pair, interval, candle time)."""
+        self.conn.execute(
+            """INSERT INTO regimes(pair, interval, time, regime, adx, ema_slope, realized_vol)
+               VALUES(?,?,?,?,?,?,?)
+               ON CONFLICT(pair, interval, time) DO UPDATE SET
+                 regime=excluded.regime, adx=excluded.adx,
+                 ema_slope=excluded.ema_slope, realized_vol=excluded.realized_vol""",
+            (pair, interval, time, regime, adx, ema_slope, realized_vol))
+        self.conn.commit()
+
+    def latest_regime(self, pair, interval):
+        row = self.conn.execute(
+            "SELECT regime, adx, ema_slope, realized_vol, time FROM regimes "
+            "WHERE pair=? AND interval=? ORDER BY time DESC LIMIT 1", (pair, interval)).fetchone()
+        return dict(row) if row else None
 
     def close(self) -> None:
         self.conn.close()

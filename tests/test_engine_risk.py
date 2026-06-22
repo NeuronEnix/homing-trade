@@ -71,6 +71,19 @@ def test_decision_log_records_veto_provenance_and_risk_event(tmp_path):
     assert ev and ev[0]["kind"] == "veto" and ev[0]["strategy"] == "ma_trend"
 
 
+def test_process_tick_records_regime_and_tags_decision(tmp_path):
+    from homing_trade.repository import Repository
+    cfg = Config(db_path=str(tmp_path / "rg.db"))
+    repo = Repository.open(cfg.db_path)
+    repo.ensure_strategy("ma_trend", 5000.0)
+    process_tick(repo, Broker(cfg.fee, cfg.slippage), [AlwaysLong()], candles(), cfg)
+    reg = repo.latest_regime(cfg.pair_candles, cfg.interval)
+    assert reg is not None                                   # the tick's regime was recorded
+    row = repo.db.conn.execute(
+        "SELECT regime FROM decision_log ORDER BY id DESC LIMIT 1").fetchone()
+    assert row["regime"] == reg["regime"]                    # decision tagged with that regime
+
+
 def test_decision_log_records_taken_action_on_open(tmp_path):
     from homing_trade.repository import Repository
     cfg = Config(db_path=str(tmp_path / "prov2.db"))

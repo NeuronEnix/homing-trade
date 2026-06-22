@@ -127,6 +127,23 @@ def test_migrate_atomic_rolls_back_partial(tmp_path, monkeypatch):
     assert "idx_tmp_bad" not in names                            # partial DDL rolled back
 
 
+def test_migration_v3_adds_regimes_table(tmp_path):
+    db = make_db(tmp_path)
+    tables = {r["name"] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "regimes" in tables
+
+
+def test_regime_roundtrip_and_upsert(tmp_path):
+    db = make_db(tmp_path)
+    db.record_regime("B-BTC_USDT", "15m", 1000, "trend_up", 30.0, 0.01, 0.005)
+    db.record_regime("B-BTC_USDT", "15m", 2000, "chop", 12.0, 0.0, 0.002)
+    latest = db.latest_regime("B-BTC_USDT", "15m")
+    assert latest["regime"] == "chop" and latest["time"] == 2000     # newest by time
+    db.record_regime("B-BTC_USDT", "15m", 2000, "transition", 22.0, 0.0, 0.002)  # upsert same key
+    assert db.latest_regime("B-BTC_USDT", "15m")["regime"] == "transition"
+    assert db.latest_regime("NOPE", "15m") is None
+
+
 def test_migration_v2_adds_columns_and_risk_events(tmp_path):
     db = make_db(tmp_path)
     assert db.schema_version() == SCHEMA_VERSION
