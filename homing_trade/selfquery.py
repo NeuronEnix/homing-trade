@@ -126,3 +126,43 @@ class SelfQuery:
                         "win_rate": (wins / len(scored)) if scored else 0.0,
                         "total_pnl": total_pnl, "avg_pnl": (total_pnl / n) if n else 0.0})
         return out
+
+    def playbook_performance(self, strategy=None, as_of=None) -> dict:
+        """{playbook_version: {trades, wins, win_rate, total_pnl, avg_pnl}} over completed trades,
+        attributed to the playbook version active at ENTRY (decision_log.playbook_version). Trades
+        made on the base prompt (no playbook) group under 'none'. Embargo-aware via as_of."""
+        agg = {}
+        for o in self._repo.outcomes_with_playbook(strategy, as_of):
+            v = o.get("playbook_version") or "none"
+            a = agg.setdefault(v, {"trades": 0, "wins": 0, "total_pnl": 0.0})
+            a["trades"] += 1
+            a["wins"] += 1 if (o.get("realized_pnl") or 0) > 0 else 0
+            a["total_pnl"] += (o.get("realized_pnl") or 0.0)
+        for a in agg.values():
+            a["win_rate"] = a["wins"] / a["trades"] if a["trades"] else 0.0
+            a["avg_pnl"] = a["total_pnl"] / a["trades"] if a["trades"] else 0.0
+        return agg
+
+    def disconfirmation_flags(self, strategy, as_of=None) -> list:
+        """Regimes the CURRENT active playbook has stopped trading that its PARENT did trade —
+        beliefs the bot may no longer be testing (e.g. a 'skip chop' rule means no fresh evidence
+        on chop). Returns [{regime, parent_trades}] for regimes with parent activity but zero
+        current-version activity, sorted by regime. [] without a current playbook that has a
+        parent. Read-only."""
+        current = self._repo.latest_playbook(strategy)
+        if not current or not current.get("parent_version"):
+            return []
+        rows = self._repo.outcomes_with_playbook(strategy, as_of)
+        cur_regimes = {o.get("regime_at_entry") for o in rows
+                       if o.get("playbook_version") == current["version"]
+                       and o.get("regime_at_entry")}
+        if not cur_regimes:
+            return []                            # current version hasn't traded yet -> it's NEW,
+                                                 # not "stopped testing"; nothing to flag
+        parent_counts = {}
+        for o in rows:
+            if o.get("playbook_version") == current["parent_version"]:
+                r = o.get("regime_at_entry") or "unknown"
+                parent_counts[r] = parent_counts.get(r, 0) + 1
+        return [{"regime": r, "parent_trades": c} for r, c in sorted(parent_counts.items())
+                if r not in cur_regimes]

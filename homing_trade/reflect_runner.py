@@ -20,6 +20,7 @@ import time
 
 from homing_trade.reflection import ReflectionEngine
 from homing_trade.calibration import propose_confidence_floor
+from homing_trade.playbook_rollback import propose_rollback
 
 
 class ReflectionRunner:
@@ -54,10 +55,16 @@ class ReflectionRunner:
                 res = None                    # belt-and-suspenders; run_once already never raises
             if res:
                 out.append(res)
-            # Mechanical confidence-calibration -> a human-gated confidence-floor proposal (no
-            # LLM; idempotent). Part of the same learn->correct cadence; never crashes the loop.
+            # Mechanical learn->correct proposers (no LLM; idempotent; human-gated). Part of the
+            # same cadence; each is isolated so one failing never blocks the other or the loop:
+            #   - confidence-floor proposal when low-confidence bands underperform
+            #   - rollback-to-parent proposal when the active playbook version degraded
             try:
                 propose_confidence_floor(self.repo, s, now_ms, starting_balance=self._start)
+            except Exception:
+                pass
+            try:
+                propose_rollback(self.repo, s, now_ms, starting_balance=self._start)
             except Exception:
                 pass
         return out
