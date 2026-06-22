@@ -42,7 +42,8 @@ def test_derived_observability_tables_are_audit_truth():
 class _RecordingRepo:
     """Records every Repository method SelfQuery touches, so we can assert it only reads."""
     READS = {"closed_pnls", "equity_series", "get_balance", "recent_risk_events",
-             "taken_action_counts", "trade_outcomes", "outcomes_with_confidence"}
+             "taken_action_counts", "trade_outcomes", "outcomes_with_confidence",
+             "outcomes_with_playbook", "latest_playbook"}
 
     def __init__(self, real):
         self._real = real
@@ -69,4 +70,6 @@ def test_selfquery_never_writes(tmp_path):
     sq.exit_reason_breakdown()
     sq.directional_accuracy()
     sq.confidence_calibration()
+    sq.playbook_performance()
+    sq.disconfirmation_flags("ma_trend")
     assert spy.calls and set(spy.calls) <= _RecordingRepo.READS

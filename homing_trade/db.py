@@ -748,6 +748,25 @@ class Database:
         q += " ORDER BY t.exit_ts ASC"
         return [dict(r) for r in self.conn.execute(q, params)]
 
+    def outcomes_with_playbook(self, strategy=None, as_of=None):
+        """trade_outcomes LEFT JOINed to the entry decision's playbook_version (via decision_id) —
+        the join per-playbook-version performance + the disconfirmation guard need (the active
+        playbook is tagged on the decision, not the outcome). `as_of` enforces the embargo;
+        playbook_version is None for trades made on the base prompt (no playbook injected)."""
+        q = ("SELECT t.*, d.playbook_version AS playbook_version "
+             "FROM trade_outcomes t LEFT JOIN decision_log d ON d.decision_id = t.decision_id")
+        cond, params = [], []
+        if strategy is not None:
+            cond.append("t.strategy=?")
+            params.append(strategy)
+        if as_of is not None:
+            cond.append("t.realized_at_ts <= ?")
+            params.append(as_of)
+        if cond:
+            q += " WHERE " + " AND ".join(cond)
+        q += " ORDER BY t.exit_ts ASC"
+        return [dict(r) for r in self.conn.execute(q, params)]
+
     # --- Phase-4 learn->correct store: reflections + append-only playbooks ---------------
     def record_reflection(self, strategy, kind, ts, *, batch_from_ts=None, batch_to_ts=None,
                           trade_ids=None, metrics=None, lesson=None, new_playbook_version=None,

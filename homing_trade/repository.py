@@ -133,6 +133,9 @@ class Repository(Ledger):
     def outcomes_with_confidence(self, strategy=None, as_of=None) -> list:
         return self.db.outcomes_with_confidence(strategy, as_of)
 
+    def outcomes_with_playbook(self, strategy=None, as_of=None) -> list:
+        return self.db.outcomes_with_playbook(strategy, as_of)
+
     # --- Phase-4 reflections + playbooks ---
     def record_reflection(self, *args, **kwargs):
         return self.db.record_reflection(*args, **kwargs)
