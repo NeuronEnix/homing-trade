@@ -63,7 +63,7 @@ Progress: 7/9 _(leaderboard + AI brain-log + per-regime/per-exit breakdown + per
 Goal: the AI reflects over its own SQLite history, finds what went right/wrong, and PROPOSES adjustments; a human approves before anything applies. Nothing self-applies.
 
 - [x] Add tables: `reflections(id, strategy, kind['per_trade'|'periodic'], ts, batch_from_ts, batch_to_ts, trade_ids_json, metrics_json, lesson, new_playbook_version, model, raw)` and `playbooks(version PK, strategy, created_ts, rules_json, parent_version, retired_ts)` (append-only; never UPDATE a published version). _(migration v7; both model-authored; accessors record_reflection/recent_reflections + publish_playbook/latest_playbook/get_playbook/retire_playbook — retire only sets retired_ts, rules_json never mutated; real-DB v6→v7 verified)_
-- [ ] Add `proposals(id, strategy, kind['param'|'prompt'|'playbook'|'strategy_toggle'], payload_json, rationale, status['pending'|'approved'|'rejected'], created_ts, decided_ts, decided_by, source_reflection_id)` — the gate between AI suggestion and applied change.
+- [x] Add `proposals(id, strategy, kind['param'|'prompt'|'playbook'|'strategy_toggle'], payload_json, rationale, status['pending'|'approved'|'rejected'], created_ts, decided_ts, decided_by, source_reflection_id)` — the gate between AI suggestion and applied change. _(migration v8; create_proposal records pending + a protected-fields guard (denylist from real config + risk/secret family substrings + value-scan for param) that refuses to even propose risk limits/kill-switch/leverage/risk_pct/stop_pct/live-arming/secrets; decide_proposal only flips pending→approved/rejected (idempotent), applies nothing. proposals classified model-authored. Adversarial review caught+fixed leverage_min/risk_pct/stop_pct gaps. Unblocks Phase-3 #4)_
 - [ ] Build `reflection.py`: a wall-clock-paced (decoupled from the candle loop, like the AI poll cadence) batched retrospection over `trade_outcomes`, producing a compact lesson + a proposed playbook diff. Use it as the PRIMARY loop.
 - [ ] Add a per-closed-trade Reflexion pass (one extra LLM call at CLOSE) that critiques the original observation/prediction/rationale vs realized P&L and `prediction_correct`; store as a `per_trade` reflection (secondary loop — never the only mechanism).
 - [ ] Score `prediction_correct` MECHANICALLY (did price do what `prediction` said over the horizon?), computed from candles — never by asking the model if it was right (reward-hacking guard).
@@ -73,7 +73,7 @@ Goal: the AI reflects over its own SQLite history, finds what went right/wrong, 
 - [ ] Per-rule and per-playbook-version performance slope tracking; auto-surface (as a proposal) a rollback when a playbook version degrades. Disconfirmation guard: flag beliefs the bot stopped testing.
 - [ ] Tests: `test_reflection.py` (batching, embargo respected, mechanical scoring), `test_proposals.py` (nothing applies without approval; protected fields can never be proposed).
 
-Progress: 1/10 _(reflections + append-only playbooks schema + accessors landed (v7); proposals approval-gate next)_
+Progress: 2/10 _(reflections + append-only playbooks (v7) + proposals approval-gate with protected-fields guard (v8) landed. Next: reflection.py — the batched retrospection that writes lessons + proposed playbook diffs)_
 
 ---
 
