@@ -17,7 +17,8 @@ def test_open_records_position_and_deducts_fee():
     cfg = Config()
     led = MemoryLedger("ma_trend", 5000.0)
     pm = PositionManager(led, Broker(cfg.fee, cfg.slippage), cfg)
-    assert pm.open(_Skill(), "LONG", _candle(), now_ms=1000) is True
+    opened, reason = pm.open(_Skill(), "LONG", _candle(), now_ms=1000)
+    assert opened is True and reason is None
     pos = led.get_open_position("ma_trend")
     assert pos is not None and pos.side == "LONG"
     assert led.get_balance("ma_trend") < 5000.0          # entry fee deducted
@@ -46,8 +47,10 @@ def test_guard_blocks_open():
     cfg = Config()
     led = MemoryLedger("ma_trend", 5000.0)
     pm = PositionManager(led, Broker(cfg.fee, cfg.slippage), cfg, guard=_BlockGuard())
-    assert pm.open(_Skill(), "LONG", _candle(), now_ms=1000) is False
-    assert led.get_open_position("ma_trend") is None     # nothing opened when blocked
+    opened, reason = pm.open(_Skill(), "LONG", _candle(), now_ms=1000)
+    assert opened is False and reason == "blocked"
+    assert led.get_open_position("ma_trend") is None       # nothing opened when blocked
+    assert led.risk_events and led.risk_events[-1]["kind"] == "veto"   # veto recorded
 
 
 class _StopBroker:

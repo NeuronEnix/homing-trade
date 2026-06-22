@@ -38,15 +38,20 @@ class PositionManager:
         return position
 
     def open(self, skill, side, candle, now_ms, weight=1.0):
-        """Open a position sized by the Advisor; returns False if the risk guard blocks it."""
+        """Open a position sized by the Advisor.
+
+        Returns (opened, reason): (True, None) on success, or (False, reason) when the
+        risk guard blocks it — in which case a 'veto' risk_event is also recorded.
+        """
         balance = self.ledger.get_balance(skill.name)
         entry_fill = self.broker.fill_price(candle.close, side, is_entry=True)
         plan = self.advisor.plan_entry(balance, entry_fill, side, weight)
         notional = plan.size * entry_fill
         if self.guard is not None:
-            ok, _reason = self.guard.can_open(notional, now_ms)
+            ok, reason = self.guard.can_open(notional, now_ms)
             if not ok:
-                return False  # blocked by daily risk limits / kill switch
+                self.ledger.record_risk_event(now_ms, skill.name, "veto", reason, notional)
+                return (False, reason)  # blocked by daily risk limits / kill switch
             self.guard.record_open(notional, now_ms)
         fee = self.broker.entry_fee(plan.size, entry_fill)
         self.ledger.set_balance(skill.name, balance - fee)
@@ -55,7 +60,7 @@ class PositionManager:
                        opened_at=candle.time)
         pid = self.ledger.open_position(pos)
         self.ledger.record_trade(skill.name, pid, side, "OPEN", entry_fill, plan.size, fee, -fee, now_ms)
-        return True
+        return (True, None)
 
     def close(self, skill, position, exit_price, candle, now_ms):
         """Close a position at exit_price; books pnl/fee and records the trade."""

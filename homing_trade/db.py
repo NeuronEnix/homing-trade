@@ -249,11 +249,19 @@ class Database:
                           (strategy, equity, ts))
         self.conn.commit()
 
-    def log_decision(self, strategy, ts, candle_time, action, confidence, reason, indicators) -> None:
+    def log_decision(self, strategy, ts, candle_time, action, confidence, reason, indicators,
+                     *, decision_id=None, intended_action=None, taken_action=None,
+                     rejection_rationale=None, regime=None, realized_vol=None,
+                     prompt_version=None, playbook_version=None) -> None:
         self.conn.execute(
-            """INSERT INTO decision_log(strategy, ts, candle_time, action, confidence, reason, indicators_json)
-               VALUES(?,?,?,?,?,?,?)""",
-            (strategy, ts, candle_time, action, confidence, reason, json.dumps(indicators)),
+            """INSERT INTO decision_log(
+                   strategy, ts, candle_time, action, confidence, reason, indicators_json,
+                   decision_id, intended_action, taken_action, rejection_rationale,
+                   regime, realized_vol, prompt_version, playbook_version)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (strategy, ts, candle_time, action, confidence, reason, json.dumps(indicators),
+             decision_id, intended_action, taken_action, rejection_rationale,
+             regime, realized_vol, prompt_version, playbook_version),
         )
         self.conn.commit()
 
