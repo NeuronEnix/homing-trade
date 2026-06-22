@@ -302,6 +302,8 @@ PROTECTED_PROPOSAL_FIELDS = frozenset({
     "max_trade_amount_per_day", "max_daily_loss", "trading_enabled",
     # execution fidelity + volatility guard + committee gate (tampering distorts risk/PnL)
     "fee", "slippage", "risk_vol_window", "risk_vol_threshold", "committee_threshold",
+    # regime-aware portfolio gate (sizing weight + committee entry bar — human-gated, not auto-tuned)
+    "regime_filter_enabled", "regime_unfavored_weight", "regime_committee_threshold_scale",
     # live-arming
     "live_enabled", "live_dry_run", "dry_run", "live",
     # alert routing + secret/env names

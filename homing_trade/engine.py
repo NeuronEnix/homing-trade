@@ -10,6 +10,7 @@ from homing_trade.broker import Broker
 from homing_trade.feed import get_candles
 from homing_trade.position_manager import PositionManager
 from homing_trade.skills.indicators import classify_regime
+from homing_trade.regime_filter import regime_weight, committee_threshold_scale
 from homing_trade.skills.ma_trend import MaTrend
 from homing_trade.skills.rsi_revert import RsiRevert
 from homing_trade.skills.grid import Grid
@@ -86,8 +87,18 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         weights = compute_allocations(perf)
     else:
         weights = {}
+    regime_on = getattr(cfg, "regime_filter_enabled", False)
     for skill in skills:
         weight = weights.get(skill.name, 1.0)
+        # Regime gate (Phase 7 #3): scale the allocator weight by the strategy's style fit to the
+        # current regime, and tell the committee to demand stronger consensus when not trending.
+        if regime_on:
+            weight *= regime_weight(skill.name, reg["regime"],
+                                    unfavored=cfg.regime_unfavored_weight)
+            skill._regime_threshold_scale = committee_threshold_scale(
+                reg["regime"], non_trending=cfg.regime_committee_threshold_scale)
+        elif hasattr(skill, "_regime_threshold_scale"):
+            skill._regime_threshold_scale = 1.0   # clear a stale scale if the gate was turned off
         # 1. risk checks on any existing position (stop / liquidation) — runs even when the
         #    strategy is disabled, so a parked position still gets its stop/liquidation safety.
         position = pm.manage_risk(skill, db.get_open_position(skill.name), candle, now_ms)
