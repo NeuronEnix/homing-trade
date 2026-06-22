@@ -37,6 +37,16 @@ class Config:
     # narrows down by requesting lower timeframes (5m/1m) via requested_charts when it sees a setup.
     ai_timeframes: list[str] = field(default_factory=lambda: ["15m", "1h", "4h"])
     ai_chart_limit: int = 150               # candles per chart
+    # Reflection — the periodic learn->correct loop. Default OFF (and free): when enabled it
+    # consults Claude on a slow cadence to retrospect over completed trades and FILE human-gated
+    # playbook proposals (it never applies anything itself; the approval gate still stands).
+    reflection_enabled: bool = False
+    reflection_poll_sec: int = 3600         # how often the periodic reflection runs (seconds)
+    reflection_min_trades: int = 5          # need >= this many fresh outcomes before reflecting
+    reflection_backend: str = "cli"         # "cli" (claude headless, no API key) | "api"
+    reflection_model: str = ""              # defaults to llm_model when empty
+    reflection_cli_timeout: int = 180
+    reflection_max_tokens: int = 800
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -125,6 +135,13 @@ def from_env(base=None, *, dotenv_path=".env"):
         ai_anthropic_poll_sec=_i("AI_ANTHROPIC_POLL_IN_SEC", cfg.ai_anthropic_poll_sec),
         ai_timeframes=_list("HT_AI_TIMEFRAMES", cfg.ai_timeframes),
         ai_chart_limit=_i("HT_AI_CHART_LIMIT", cfg.ai_chart_limit),
+        reflection_enabled=_b("REFLECTION_IS_ENABLED", cfg.reflection_enabled),
+        reflection_poll_sec=_i("REFLECTION_POLL_IN_SEC", cfg.reflection_poll_sec),
+        reflection_min_trades=_i("REFLECTION_MIN_TRADES", cfg.reflection_min_trades),
+        reflection_backend=_s("REFLECTION_BACKEND", cfg.reflection_backend),
+        reflection_model=_s("REFLECTION_MODEL", cfg.reflection_model),
+        reflection_cli_timeout=_i("REFLECTION_CLI_TIMEOUT", cfg.reflection_cli_timeout),
+        reflection_max_tokens=_i("REFLECTION_MAX_TOKENS", cfg.reflection_max_tokens),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
