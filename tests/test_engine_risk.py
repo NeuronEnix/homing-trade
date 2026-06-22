@@ -26,6 +26,34 @@ def test_disabled_guard_blocks_open():
     assert led.get_open_position("ma_trend") is None  # master switch blocked it
 
 
+def test_disabled_strategy_takes_no_new_position():
+    cfg = Config()
+    led = MemoryLedger("ma_trend", 5000.0)
+    process_tick(led, Broker(cfg.fee, cfg.slippage), [AlwaysLong()], candles(), cfg,
+                 is_disabled=lambda n: True)
+    assert led.get_open_position("ma_trend") is None        # disabled -> no consult, no open
+    process_tick(led, Broker(cfg.fee, cfg.slippage), [AlwaysLong()], candles(), cfg,
+                 is_disabled=lambda n: False)
+    assert led.get_open_position("ma_trend") is not None    # enabled -> opens normally
+
+
+def test_disabled_strategy_still_risk_manages_open_position():
+    cfg = Config()
+    led = MemoryLedger("ma_trend", 5000.0)
+    process_tick(led, Broker(cfg.fee, cfg.slippage), [AlwaysLong()], candles(), cfg)  # opens LONG
+    pos = led.get_open_position("ma_trend")
+    assert pos is not None
+    # disable it, then feed a candle whose low dips just below the stop (but stays above the
+    # liquidation price) — the STOP must still fire, so a parked position is never left
+    # unprotected. low = stop - 1 keeps us in the stop band, not liquidation.
+    crash = candles()[:-1] + [Candle(open=100, high=100, low=pos.stop_price - 1,
+                                     close=pos.stop_price - 1, volume=1, time=99_000_000)]
+    process_tick(led, Broker(cfg.fee, cfg.slippage), [AlwaysLong()], crash, cfg,
+                 is_disabled=lambda n: True)
+    assert led.get_open_position("ma_trend") is None         # stop managed even while disabled
+    assert led.trades[-1]["exit_reason"] == "stop"           # specifically the stop, not liquidation
+
+
 def test_tiny_daily_cap_blocks_open():
     cfg = Config()
     led = MemoryLedger("ma_trend", 5000.0)

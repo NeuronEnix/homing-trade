@@ -24,6 +24,8 @@
   .card h3{margin:0 0 6px;font-size:13px;display:flex;justify-content:space-between;align-items:center}
   .price .v{font-size:20px;font-weight:700} .mut{color:var(--mut)} .up{color:var(--grn)} .dn{color:var(--red)}
   .tag{font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(88,166,255,.15);color:var(--blu)}
+  .card.off{opacity:.55} .tag.off{background:rgba(248,81,73,.15);color:var(--red)}
+  button.mini{padding:2px 8px;font-size:11px}
   .ai .tag{background:rgba(210,153,34,.15);color:var(--yel)}
   .pos{margin-top:8px;padding:8px;border:1px dashed var(--bd);border-radius:8px;font-size:13px}
   .kv{display:flex;justify-content:space-between} .b{font-weight:700}
@@ -73,6 +75,7 @@ const tm=ts=>new Date(ts).toLocaleTimeString();
 async function ctl(action){await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});refresh();}
 async function resetBot(){if(confirm('Reset wipes the paper ledger (wallets, trades, positions). Continue?')){await ctl('reset');}}
 async function closeTrade(s){if(confirm('Exit '+s+' open trade at market?')){await fetch('/api/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:s})});refresh();}}
+async function toggleStrategy(s,enabled){await fetch('/api/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:s,enabled})});refresh();}
 async function refresh(){
   try{
     const s=await (await fetch('/api/state')).json();
@@ -139,11 +142,15 @@ function card(x){
     <div class="kv"><span class="mut">max DD</span><span class="${x.max_drawdown>0?'dn':'mut'}">${fmt(x.max_drawdown)}</span></div>
     <div class="kv"><span class="mut">expectancy</span><span class="${x.expectancy>=0?'up':'dn'}">${fmt(x.expectancy)}</span></div>
     <div class="kv"><span class="mut">last action</span><span>${x.last_action||'—'}</span></div></div>`;
-  return `<div class="card ${x.is_ai?'ai':''}"><h3><span>${x.rank?`<span class="rank">#${x.rank}</span>`:''}${x.name} ${x.is_ai?'<span class="tag">AI</span>':'<span class="tag">algo</span>'}</span>
+  const toggle=x.disabled
+    ? `<button class="mini" onclick="toggleStrategy('${x.name}',true)">▶ Enable</button>`
+    : `<button class="mini" onclick="toggleStrategy('${x.name}',false)">⏸ Disable</button>`;
+  return `<div class="card ${x.is_ai?'ai':''} ${x.disabled?'off':''}"><h3><span>${x.rank?`<span class="rank">#${x.rank}</span>`:''}${x.name} ${x.is_ai?'<span class="tag">AI</span>':'<span class="tag">algo</span>'}${x.disabled?'<span class="tag off">disabled</span>':''}</span>
     <span class="${pnl}">${x.pnl_pct>=0?'+':''}${fmt(x.pnl_pct)}%</span></h3>
     <div class="kv"><span class="mut">equity</span><span class="b">₹${fmt(x.equity)}</span></div>
     <div class="kv"><span class="mut">balance</span><span>₹${fmt(x.balance)}</span></div>
-    ${spark(x.equity_curve)}${metrics}${pos}${ai}</div>`;
+    ${spark(x.equity_curve)}${metrics}${pos}${ai}
+    <div style="margin-top:8px;text-align:right">${toggle}</div></div>`;
 }
 async function prices(){
   try{

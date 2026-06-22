@@ -42,7 +42,8 @@ def test_get_prices_filters_symbols():
 
 
 # --- controller lifecycle ---
-def _blocking_runner(cfg, *, notifier=None, should_stop, is_paused=None, sleeper, commands=None):
+def _blocking_runner(cfg, *, notifier=None, should_stop, is_paused=None, sleeper, commands=None,
+                     is_disabled=None):
     while not should_stop():
         sleeper(0.01)
 
@@ -96,6 +97,7 @@ def test_build_state_shape(tmp_path):
 
     class _Ctrl:
         last_error = None
+        disabled = set()
         def status(self): return "running"
     st = build_state(cfg, _Ctrl())
     assert st["status"] == "running"
@@ -127,6 +129,7 @@ def test_build_state_leaderboard_metrics(tmp_path):
 
     class _Ctrl:
         last_error = None
+        disabled = set()
         def status(self): return "running"
     st = build_state(cfg, _Ctrl())
     by = {s["name"]: s for s in st["strategies"]}
@@ -155,6 +158,7 @@ def test_build_state_brain_log(tmp_path):
 
     class _Ctrl:
         last_error = None
+        disabled = set()
         def status(self): return "running"
     st = build_state(cfg, _Ctrl())
     bl = st["brain_log"]
@@ -181,6 +185,7 @@ def test_build_state_regime_and_exit_breakdown(tmp_path):
 
     class _Ctrl:
         last_error = None
+        disabled = set()
         def status(self): return "running"
     st = build_state(cfg, _Ctrl())
     rb = st["regime_breakdown"]
@@ -222,12 +227,45 @@ def test_build_state_profit_factor_none_is_json_safe(tmp_path):
 
     class _Ctrl:
         last_error = None
+        disabled = set()
         def status(self): return "running"
     st = build_state(cfg, _Ctrl())
     db.close()
     g = next(s for s in st["strategies"] if s["name"] == "grid")
     assert g["profit_factor"] is None
     json.dumps(st)                                           # must not raise (no inf/nan)
+
+
+def test_strategy_toggle_and_build_state_flag(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "tog.db"))
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0); db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    ctrl.set_strategy_enabled("ma", False)
+    assert "ma" in ctrl.disabled
+    ma = next(s for s in build_state(cfg, ctrl)["strategies"] if s["name"] == "ma")
+    assert ma["disabled"] is True
+    ctrl.set_strategy_enabled("ma", True)                    # re-enable
+    ma = next(s for s in build_state(cfg, ctrl)["strategies"] if s["name"] == "ma")
+    assert ma["disabled"] is False
+
+
+def test_http_toggle_endpoint(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "h2.db"), web_port=0)
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0); db.close()
+    ctrl = Controller(cfg, runner=_blocking_runner, notifier=_N())
+    server = make_server(cfg, ctrl)
+    port = server.server_address[1]
+    t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/toggle",
+            data=json.dumps({"strategy": "ma", "enabled": False}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        resp = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        assert resp["ok"] and "ma" in resp["disabled"]
+        assert "ma" in ctrl.disabled
+    finally:
+        server.shutdown()
 
 
 # --- HTTP smoke ---
