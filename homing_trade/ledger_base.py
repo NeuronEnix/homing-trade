@@ -56,3 +56,7 @@ class Ledger(ABC):
 
     @abstractmethod
     def record_risk_event(self, ts, strategy, kind, reason, notional=None) -> None: ...
+
+    @abstractmethod
+    def record_regime(self, pair, interval, time, regime, adx=None, ema_slope=None,
+                      realized_vol=None) -> None: ...
