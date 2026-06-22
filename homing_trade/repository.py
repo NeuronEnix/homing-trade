@@ -108,5 +108,11 @@ class Repository(Ledger):
     def reset_paper_ledger(self) -> None:
         return self.db.reset_paper_ledger()
 
+    def record_risk_event(self, ts, strategy, kind, reason, notional=None):
+        return self.db.record_risk_event(ts, strategy, kind, reason, notional)
+
+    def recent_risk_events(self, limit=50):
+        return self.db.recent_risk_events(limit)
+
     def close(self):
         return self.db.close()

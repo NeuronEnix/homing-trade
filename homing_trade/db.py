@@ -90,12 +90,14 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
-# rolls the whole version back rather than leaving the DB half-migrated. Keep statements
-# idempotent (IF NOT EXISTS) anyway as belt-and-braces.
+# rolls the whole version back rather than leaving the DB half-migrated. The `ver > current`
+# guard guarantees each version runs exactly once per DB; `CREATE ... IF NOT EXISTS` is used
+# where possible, while `ALTER TABLE ADD COLUMN` (not idempotent in SQLite) is safe because of
+# that once-only guard + the atomic rollback above.
 MIGRATIONS = {
     # v1: indexes that make the reflection / leaderboard joins cheap (Phase 2 reads these hot).
     1: [
@@ -103,6 +105,34 @@ MIGRATIONS = {
         "CREATE INDEX IF NOT EXISTS idx_llm_responses_strategy_ts ON llm_responses(strategy, ts)",
         "CREATE INDEX IF NOT EXISTS idx_trades_strategy_ts ON trades(strategy, ts)",
         "CREATE INDEX IF NOT EXISTS idx_trades_position_id ON trades(position_id)",
+    ],
+    # v2: Phase-2 observability ledger — row-level provenance (replayable decisions),
+    # execution fidelity (slippage), and risk visibility. Columns are nullable; population
+    # is wired in follow-up PRs.
+    2: [
+        # decision_log: the full story of each decision — what was intended, what was taken,
+        # why it was blocked, and the regime/vol context at decision time.
+        "ALTER TABLE decision_log ADD COLUMN decision_id TEXT",
+        "ALTER TABLE decision_log ADD COLUMN intended_action TEXT",
+        "ALTER TABLE decision_log ADD COLUMN taken_action TEXT",
+        "ALTER TABLE decision_log ADD COLUMN rejection_rationale TEXT",
+        "ALTER TABLE decision_log ADD COLUMN regime TEXT",
+        "ALTER TABLE decision_log ADD COLUMN realized_vol REAL",
+        "ALTER TABLE decision_log ADD COLUMN prompt_version TEXT",
+        "ALTER TABLE decision_log ADD COLUMN playbook_version TEXT",
+        # llm_responses: make a model consult fully replayable.
+        "ALTER TABLE llm_responses ADD COLUMN prompt_version TEXT",
+        "ALTER TABLE llm_responses ADD COLUMN prompt_hash TEXT",
+        "ALTER TABLE llm_responses ADD COLUMN next_check_in_sec INTEGER",
+        "ALTER TABLE llm_responses ADD COLUMN requested_charts TEXT",
+        # trades: capture the decision price and realized slippage of each fill.
+        "ALTER TABLE trades ADD COLUMN decision_price REAL",
+        "ALTER TABLE trades ADD COLUMN slippage REAL",
+        # risk_events: DailyRiskGuard vetoes / kill-switch trips, so they are observable not silent.
+        "CREATE TABLE IF NOT EXISTS risk_events ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, strategy TEXT,"
+        " kind TEXT NOT NULL, reason TEXT, notional REAL)",
+        "CREATE INDEX IF NOT EXISTS idx_risk_events_ts ON risk_events(ts)",
     ],
 }
 
@@ -364,6 +394,18 @@ class Database:
             self.conn.execute(f"DELETE FROM {t}")
         self.conn.execute("DELETE FROM state WHERE key='last_candle_time'")
         self.conn.commit()
+
+    def record_risk_event(self, ts, strategy, kind, reason, notional=None):
+        """Record a risk-guard event (kind e.g. 'veto' | 'halt') so it is observable."""
+        self.conn.execute(
+            "INSERT INTO risk_events(ts, strategy, kind, reason, notional) VALUES(?,?,?,?,?)",
+            (ts, strategy, kind, reason, notional))
+        self.conn.commit()
+
+    def recent_risk_events(self, limit=50):
+        return [dict(r) for r in self.conn.execute(
+            "SELECT ts, strategy, kind, reason, notional FROM risk_events ORDER BY id DESC LIMIT ?",
+            (limit,))]
 
     def close(self) -> None:
         self.conn.close()

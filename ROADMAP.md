@@ -27,10 +27,10 @@ Progress: 8/8
 ## Phase 2 — Total observability (complete SQLite action ledger + read-only self-query layer)
 Goal: every action the bot takes (signal, open, close, fill, fee, P&L, AI rationale, error, risk veto) is one queryable row; the AI can ask "how did I do" through a safe read-only layer.
 
-- [ ] Extend `decision_log` with: `decision_id TEXT` (UUID), `prompt_version TEXT`, `playbook_version TEXT`, `regime TEXT`, `realized_vol REAL`, `intended_action TEXT`, `taken_action TEXT`, `rejection_rationale TEXT` (why a `DailyRiskGuard` veto blocked it). Tag at decision time, never re-derived.
-- [ ] Add `prompt_hash` + a `prompt_version` to `llm_responses` and store `next_check_in_sec` / `requested_charts` the model returned, so a decision is fully replayable (the model already emits these in `llm_trader.py`).
-- [ ] Record fills/fees explicitly: ensure every `_open_position`/`_close_position` writes `fill price vs decision price` (slippage) and fee into `trades` (most fields exist; add `decision_price`/`slippage`).
-- [ ] Add a `risk_events` table written by `DailyRiskGuard` (`can_open` veto, kill-switch trip) so vetoes are observable, not silent.
+- [ ] Extend `decision_log` with: `decision_id TEXT` (UUID), `prompt_version TEXT`, `playbook_version TEXT`, `regime TEXT`, `realized_vol REAL`, `intended_action TEXT`, `taken_action TEXT`, `rejection_rationale TEXT` (why a `DailyRiskGuard` veto blocked it). Tag at decision time, never re-derived. _(columns added in migration v2; population pending)_
+- [ ] Add `prompt_hash` + a `prompt_version` to `llm_responses` and store `next_check_in_sec` / `requested_charts` the model returned, so a decision is fully replayable (the model already emits these in `llm_trader.py`). _(columns added in migration v2; population pending)_
+- [ ] Record fills/fees explicitly: ensure every `_open_position`/`_close_position` writes `fill price vs decision price` (slippage) and fee into `trades` (most fields exist; add `decision_price`/`slippage`). _(columns added in migration v2; population pending)_
+- [ ] Add a `risk_events` table written by `DailyRiskGuard` (`can_open` veto, kill-switch trip) so vetoes are observable, not silent. _(table + record/read accessors added in migration v2; guard wiring pending)_
 - [ ] Create a forward-only `regimes` table `(pair, interval, time, regime, adx, ema_slope, realized_vol)` computed at decision time; reuse/extend `_tf_summary` in `llm_trader.py` and a new ADX helper in `skills/indicators.py`.
 - [ ] Add a denormalized `trade_outcomes` view/table joining open→close `trades` by `position_id`, carrying `decision_id`, entry/exit price+ts, slippage, fees, `realized_pnl`, `pnl_pct`, `mae`, `mfe`, `holding_period_ms`, `exit_reason`, `regime_at_entry`, `prediction_correct`. This single row is what reflection reads.
 - [ ] Enforce an outcome embargo: outcome columns carry `realized_at_ts`; the self-query layer only exposes them where `realized_at_ts <= now` (prevents the Oracle Fallacy).
@@ -38,7 +38,7 @@ Goal: every action the bot takes (signal, open, close, fill, fee, P&L, AI ration
 - [ ] Keep the audit-truth tables (`wallets`, `positions`, `trades`, `equity`, `candles`) machine-written only; only `decision_log`, `llm_responses`, `reflections`, `playbooks` may carry model-authored text (Hierarchy of Truth).
 - [ ] Tests: `test_selfquery.py` (read-only enforced, embargo enforced), `test_trade_outcomes.py`, extend `test_db.py`/`test_llm_persistence.py`.
 
-Progress: 0/10
+Progress: 0/10 _(migration v2 substrate landed: decision_log/llm_responses/trades provenance columns + risk_events table & accessors; population/wiring + regimes/trade_outcomes/selfquery in follow-up PRs)_
 
 ---
 
