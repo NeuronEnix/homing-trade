@@ -266,13 +266,19 @@ class Database:
         self.conn.commit()
 
     def record_llm_response(self, strategy, ts, backend, model, action, confidence,
-                            observation, prediction, rationale, raw, error) -> None:
+                            observation, prediction, rationale, raw, error,
+                            *, next_check_in_sec=None, requested_charts=None,
+                            prompt_version=None, prompt_hash=None) -> None:
         self.conn.execute(
             """INSERT INTO llm_responses(strategy, ts, backend, model, action, confidence,
-                                         observation, prediction, rationale, raw, error)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                                         observation, prediction, rationale, raw, error,
+                                         next_check_in_sec, requested_charts,
+                                         prompt_version, prompt_hash)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (strategy, ts, backend, model, action, confidence,
-             observation, prediction, rationale, raw, error),
+             observation, prediction, rationale, raw, error, next_check_in_sec,
+             json.dumps(requested_charts) if requested_charts is not None else None,
+             prompt_version, prompt_hash),
         )
         self.conn.commit()
 
