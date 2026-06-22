@@ -110,7 +110,7 @@ Progress: 8/8 ✅ COMPLETE _(#1–#5 the five external feeds (PRs #56–#60) + #
 ## Phase 7 — Profitability via honest walk-forward backtests (continuous)
 Goal: continuous, honest walk-forward evaluation. It is OK to lose paper money while learning; the discipline is what matters.
 
-- [ ] Walk-forward harness on top of `backtest.run_backtest`: train window → freeze params/prompt/playbook → evaluate on the next unseen window → roll forward. A change is "learned" only if it holds out-of-sample.
+- [x] Walk-forward harness on top of `backtest.run_backtest`: train window → freeze params/prompt/playbook → evaluate on the next unseen window → roll forward. A change is "learned" only if it holds out-of-sample. _(PR #64: homing_trade/walkforward.py. fold_bounds tiles contiguous non-overlapping in-bounds OOS test windows (step defaults to test); walk_forward(skill_factory, candles, cfg, balance, *, train, test, step, window, fit_fn) returns per-fold OOS results + a compounded aggregate (compounded_return/hit_rate/mean_sharpe/worst_drawdown/worst_fold). NO LOOKAHEAD: a fold evaluates only candles[te_lo:te_hi]; fit_fn sees only its train slice — locked in by a test mutating ALL candles after fold0's test window asserting fold0 bit-identical (+ a non-vacuous check the mutation moved a later fold). fit→freeze→test gate: fit_fn(skill, train, cfg)→frozen cfg applied to test eval, so an in-sample fit can't inflate OOS (default fit=identity; mechanical strategies have no tunable params yet — this is the hook a future tuner plugs into). skill_factory MUST be callable (fresh skill/fold) — bare instance rejected so a stateful skill can't bleed state across folds. Thin CLI `python -m homing_trade.walkforward`, smoke-tested on real candles. Documented conservative caveat: indicators warm up within each test slice (never a leak). Adversarial review: lookahead/fold-math/aggregate correct; one state-bleed footgun fixed+regression-tested. Suite 545→556 green. Review: SHIP)_
 - [ ] Add the shortlisted strategies as skills (see candidate algos): Supertrend, volume-confirmed breakout, TTM Squeeze, regime filter, z-score reversion — each with its own `test_<skill>.py`.
 - [ ] Regime filter as a gate/weight feeding the allocator + committee (highest portfolio-level leverage).
 - [ ] A/B variant bookkeeping: `experiments(id, hypothesis, variant_a, variant_b, metric, mde, start_ts, end_ts, n_a, n_b, result, p_value, correction_method)`; record search budget for honest multiple-testing accounting.
@@ -118,7 +118,7 @@ Goal: continuous, honest walk-forward evaluation. It is OK to lose paper money w
 - [ ] Guard against the LLM "profit mirage": only trust backtests on post-cutoff, walk-forward data.
 - [ ] Continuous backtest job (cron/daemon) writing results to SQLite, surfaced in the UI.
 
-Progress: 0/7
+Progress: 1/7 _(#1 the walk-forward OOS harness (PR #64) landed — honest train→freeze→test rolling evaluation with a proven no-lookahead invariant + a fit→freeze→test gate so an in-sample fit can't inflate OOS metrics. Next: #2 — add the shortlisted candidate strategies as skills (Supertrend, volume-confirmed breakout, TTM Squeeze, regime filter, z-score reversion), each with its own test_<skill>.py)_
 
 ---
 
