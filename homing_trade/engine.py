@@ -233,6 +233,12 @@ class SkillRunner:
             for t in self.ai_traders:
                 if hasattr(t, "add_context_provider"):
                     t.add_context_provider("price_ref", lambda k=_pr_key: get_price_ref(ledger, api_key=k))
+        # Crypto news headlines (free RSS) — GLOBAL macro/event context, cache-aware, degrade-safe.
+        if getattr(cfg, "news_enabled", False) and hasattr(ledger, "get_signal"):
+            from homing_trade.signals.news import get_news
+            for t in self.ai_traders:
+                if hasattr(t, "add_context_provider"):
+                    t.add_context_provider("news", lambda: get_news(ledger))
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
