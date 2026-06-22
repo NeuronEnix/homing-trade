@@ -53,6 +53,26 @@ def bollinger(values, period=20, num_std=2.0):
     return mid, mid + num_std * sd, mid - num_std * sd
 
 
+def true_ranges(candles):
+    """Wilder's true range for each candle after the first: max(H-L, |H-prevC|, |L-prevC|)."""
+    trs = []
+    for i in range(1, len(candles)):
+        h, l, pc = candles[i].high, candles[i].low, candles[i - 1].close
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    return trs
+
+
+def atr(candles, period: int = 14) -> float | None:
+    """Wilder's Average True Range over OHLC candles, or None if too short (< period+1)."""
+    if len(candles) < period + 1:
+        return None
+    trs = true_ranges(candles)
+    a = sum(trs[:period]) / period
+    for tr in trs[period:]:
+        a = (a * (period - 1) + tr) / period
+    return a
+
+
 # --- regime detection (used to tag decisions with their market context) ---
 
 def _wilder_smooth(seq, period):
