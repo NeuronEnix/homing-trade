@@ -14,6 +14,7 @@ class MemoryLedger(Ledger):
         self._next_id = 1
         self.trades: list[dict] = []
         self.equity_curve: list[tuple[int, float]] = []
+        self.risk_events: list[dict] = []
 
     def ensure_strategy(self, name, starting_balance):
         self._balance.setdefault(name, starting_balance)
@@ -47,6 +48,10 @@ class MemoryLedger(Ledger):
 
     def record_equity(self, strategy, equity, ts):
         self.equity_curve.append((ts, equity))
+
+    def record_risk_event(self, ts, strategy, kind, reason, notional=None):
+        self.risk_events.append({"ts": ts, "strategy": strategy, "kind": kind,
+                                 "reason": reason, "notional": notional})
 
     def log_decision(self, *args, **kwargs):
         pass

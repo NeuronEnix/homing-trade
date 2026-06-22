@@ -52,3 +52,6 @@ class Ledger(ABC):
 
     @abstractmethod
     def recent_close_pnls(self, strategy, limit): ...
+
+    @abstractmethod
+    def record_risk_event(self, ts, strategy, kind, reason, notional=None) -> None: ...

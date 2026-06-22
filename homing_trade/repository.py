@@ -44,8 +44,9 @@ class Repository(Ledger):
     def record_equity(self, strategy, equity, ts):
         return self.db.record_equity(strategy, equity, ts)
 
-    def log_decision(self, strategy, ts, candle_time, action, confidence, reason, indicators):
-        return self.db.log_decision(strategy, ts, candle_time, action, confidence, reason, indicators)
+    def log_decision(self, *args, **kwargs):
+        # Passthrough so the provenance kwargs (decision_id, intended/taken_action, …) flow to Database.
+        return self.db.log_decision(*args, **kwargs)
 
     def record_llm_response(self, strategy, ts, backend, model, action, confidence,
                             observation, prediction, rationale, raw, error):

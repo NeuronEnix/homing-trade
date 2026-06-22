@@ -1,6 +1,7 @@
 # homing_trade/engine.py
 import os
 import time
+import uuid
 from homing_trade.allocator import compute_allocations, recent_performance
 from homing_trade.config import CONFIG
 from homing_trade.risk import DailyRiskGuard
@@ -55,7 +56,8 @@ def _close_position(db, broker, skill, position, exit_price, candle, now_ms, gua
 
 def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, guard=None):
     # Backward-compatible shim: the mechanics now live in PositionManager.
-    return PositionManager(db, broker, cfg, guard).open(skill, side, candle, now_ms, weight)
+    opened, _reason = PositionManager(db, broker, cfg, guard).open(skill, side, candle, now_ms, weight)
+    return opened
 
 
 def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is_paused=None):
@@ -74,8 +76,7 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         position = pm.manage_risk(skill, db.get_open_position(skill.name), candle, now_ms)
         # 2. strategy decision
         signal = skill.on_candle(candles, position)
-        db.log_decision(skill.name, now_ms, candle.time, signal.action,
-                        signal.confidence, signal.reason, signal.indicators)
+        decision_id = uuid.uuid4().hex
         # 2b. persist the full AI response + reasoning (only on a real consult or an error)
         if signal.raw or signal.error:
             m = signal.meta or {}
@@ -90,11 +91,22 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
                 skill._last_alerted_error = signal.error
         elif not signal.error:
             skill._last_alerted_error = None
-        # 3. act on the decision
-        if signal.action in ("LONG", "SHORT") and position is None and not paused:
-            pm.open(skill, signal.action, candle, now_ms, weight)
+        # 3. act on the decision, recording what was actually taken (and why, if blocked)
+        taken_action, rejection = "HOLD", None
+        if signal.action in ("LONG", "SHORT") and position is None:
+            if paused:
+                taken_action, rejection = "PAUSED", "paused: new entries disabled"
+            else:
+                opened, reason = pm.open(skill, signal.action, candle, now_ms, weight)
+                taken_action, rejection = (signal.action, None) if opened else ("BLOCKED", reason)
         elif signal.action == "CLOSE" and position is not None:
             pm.close(skill, position, candle.close, candle, now_ms)
+            taken_action = "CLOSE"
+        # 3b. log the decision with full provenance (intended vs taken, why blocked)
+        db.log_decision(skill.name, now_ms, candle.time, signal.action, signal.confidence,
+                        signal.reason, signal.indicators, decision_id=decision_id,
+                        intended_action=signal.action, taken_action=taken_action,
+                        rejection_rationale=rejection)
         # 4. equity snapshot
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
@@ -214,6 +226,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                 runner.run_tick(candles, is_paused=is_paused, commands=commands)
                 # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
                 if guard is not None and guard.halted_reason:
+                    repo.record_risk_event(int(time.time() * 1000), None, "halt", guard.halted_reason)
                     if notifier is not None:
                         notifier.notify("error", "risk halt", guard.halted_reason)
                     print(f"[risk] halting: {guard.halted_reason}")
