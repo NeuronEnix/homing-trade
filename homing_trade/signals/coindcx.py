@@ -8,9 +8,9 @@ Each piece is independently best-effort: a missing/odd payload for one degrades 
 rather than dropping the whole reading. `get_coindcx` is the cache-aware entry the engine injects:
 serve-fresh / refetch-stale / fall-back-to-stale-or-None — never crashes the loop.
 """
-import time
-
 import requests
+
+from homing_trade.signals.cache import cached_signal
 
 SOURCE = "coindcx"
 ORDERBOOK_URL = "https://public.coindcx.com/market_data/orderbook"
@@ -112,13 +112,5 @@ def get_coindcx(repo, pair, *, fetcher=None, now=None, max_age_sec=DEFAULT_MAX_A
     """Cache-aware CoinDCX microstructure for `pair`. Returns the reading dict or None. Serves a
     cached value within `max_age_sec`; else refetches + caches; on failure returns the stale cached
     value (or None). Reads/writes signal_cache(source='coindcx', key=pair). Epoch MS."""
-    now = int(now if now is not None else time.time() * 1000)
-    cached = repo.get_signal(SOURCE, pair) if hasattr(repo, "get_signal") else None
-    if cached and (now - cached["fetched_at"]) < max_age_sec * 1000:
-        return cached["value"]
-    fresh = fetch_coindcx(pair, fetcher=fetcher)
-    if fresh is None:
-        return cached["value"] if cached else None
-    if hasattr(repo, "upsert_signal"):
-        repo.upsert_signal(SOURCE, pair, fresh["ts"], fresh, now)
-    return fresh
+    return cached_signal(repo, SOURCE, pair, lambda: fetch_coindcx(pair, fetcher=fetcher),
+                         ts_fn=lambda v: v.get("ts", 0), now=now, max_age_sec=max_age_sec)

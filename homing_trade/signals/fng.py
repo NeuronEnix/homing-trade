@@ -8,9 +8,9 @@ which both rate-limits the upstream and makes a decision replayable.
 
 The fetcher is injectable so tests run offline and deterministic.
 """
-import time
-
 import requests
+
+from homing_trade.signals.cache import cached_signal
 
 FNG_URL = "https://api.alternative.me/fng/"
 SOURCE = "fng"
@@ -44,13 +44,5 @@ def get_fng(repo, *, fetcher=None, now=None, max_age_sec=DEFAULT_MAX_AGE_SEC):
     Serves a cached value still within `max_age_sec`; otherwise refetches and caches it. If the
     refetch fails, returns the (stale) cached value when present, else None — the loop keeps running.
     `now`/`fetched_at` are epoch MS; reads/writes signal_cache(source='fng', key='latest')."""
-    now = int(now if now is not None else time.time() * 1000)
-    cached = repo.get_signal(SOURCE, KEY) if hasattr(repo, "get_signal") else None
-    if cached and (now - cached["fetched_at"]) < max_age_sec * 1000:
-        return cached["value"]
-    fresh = fetch_fng(fetcher=fetcher)
-    if fresh is None:
-        return cached["value"] if cached else None
-    if hasattr(repo, "upsert_signal"):
-        repo.upsert_signal(SOURCE, KEY, fresh["ts"], fresh, now)
-    return fresh
+    return cached_signal(repo, SOURCE, KEY, lambda: fetch_fng(fetcher=fetcher),
+                         ts_fn=lambda v: v["ts"], now=now, max_age_sec=max_age_sec)

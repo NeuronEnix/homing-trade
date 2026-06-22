@@ -127,6 +127,25 @@ def test_build_state_surfaces_per_ai_cost(tmp_path):
     assert ai["cost"]["usd"] == 0.0045
 
 
+def test_build_state_surfaces_signal_cache_freshness(tmp_path):
+    # Phase 6 #6: build_state exposes per-source external-signal cache freshness.
+    cfg = Config(db_path=str(tmp_path / "sig.db"))
+    db = Database(cfg.db_path)
+    db.upsert_signal("fng", "latest", 1000, {"value": 40}, 2000)
+    db.upsert_signal("news", "headlines", 1500, [{"t": "x"}], 3000)
+    db.close()
+
+    class _Ctrl:
+        last_error = None
+        disabled = set()
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    srcs = {s["source"] for s in st["signals"]}
+    assert {"fng", "news"} <= srcs
+    fng = next(s for s in st["signals"] if s["source"] == "fng")
+    assert fng["fetched_at"] == 2000 and "age_sec" in fng and "stale" in fng
+
+
 def test_build_state_leaderboard_metrics(tmp_path):
     cfg = Config(db_path=str(tmp_path / "lb.db"))
     db = Database(cfg.db_path)
@@ -480,3 +499,10 @@ def test_dashboard_renders_per_ai_cost_column():
     assert "x.cost" in DASHBOARD_HTML                     # reads the per-AI cost rollup
     assert "AI cost" in DASHBOARD_HTML and "tok" in DASHBOARD_HTML
     assert "toggleStrategy(" in DASHBOARD_HTML            # enable/disable toggle present
+
+
+def test_dashboard_renders_signal_freshness_panel():
+    # Phase 6 #6: the research-signals cache-freshness panel is wired.
+    from homing_trade.web import DASHBOARD_HTML
+    assert "research signals" in DASHBOARD_HTML and 'id="signals"' in DASHBOARD_HTML
+    assert "s.signals" in DASHBOARD_HTML and "ageStr" in DASHBOARD_HTML

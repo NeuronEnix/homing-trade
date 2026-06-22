@@ -215,6 +215,10 @@ def build_state(cfg, controller):
         # all realized outcomes; the as_of embargo is for the learning loop, not display.
         regime_breakdown = sq.regime_performance()
         exit_breakdown = sq.exit_reason_breakdown()
+        # External-signal cache freshness (Phase 6 #6): per-source fetched_at / age, so the cache
+        # of research feeds (sentiment, derivs, orderbook, price-ref, news) is inspectable.
+        from homing_trade.signals.cache import signal_status
+        signals = signal_status(repo)
         # Proposal queue: the AI's pending suggestions awaiting human approve/reject, plus the
         # recently-decided ones for feedback. payload is parsed so the UI can show rules/params.
         proposals = []
@@ -238,7 +242,7 @@ def build_state(cfg, controller):
             "strategies": strategies, "trades": trades, "decisions": decisions,
             "brain_log": brain_log,
             "regime_breakdown": regime_breakdown, "exit_breakdown": exit_breakdown,
-            "proposals": proposals,
+            "proposals": proposals, "signals": signals,
         }
     finally:
         repo.close()

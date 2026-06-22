@@ -69,6 +69,9 @@ class Repository(Ledger):
     def get_signal(self, source, key):
         return self.db.get_signal(source, key)
 
+    def all_signals(self):
+        return self.db.all_signals()
+
     def recent_close_pnls(self, strategy, limit):
         return self.db.recent_close_pnls(strategy, limit)
 

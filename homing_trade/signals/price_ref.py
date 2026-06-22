@@ -9,9 +9,10 @@ The point: a large gap between this independent USD reference and the venue's or
 flags stale/illiquid venue data — a reason for caution, not a trade.
 """
 import os
-import time
 
 import requests
+
+from homing_trade.signals.cache import cached_signal
 
 SOURCE = "price_ref"
 KEY = "usd"
@@ -64,13 +65,6 @@ def get_price_ref(repo, *, fetcher=None, now=None, max_age_sec=DEFAULT_MAX_AGE_S
     """Cache-aware reference price for the traded assets. Returns the {coin_id: {...}} dict or None.
     Serves a cached value within `max_age_sec`; else refetches + caches; on failure returns the stale
     cached value (or None). Reads/writes signal_cache(source='price_ref', key='usd'). Epoch MS."""
-    now = int(now if now is not None else time.time() * 1000)
-    cached = repo.get_signal(SOURCE, KEY) if hasattr(repo, "get_signal") else None
-    if cached and (now - cached["fetched_at"]) < max_age_sec * 1000:
-        return cached["value"]
-    fresh = fetch_price_ref(fetcher=fetcher, api_key=api_key)
-    if fresh is None:
-        return cached["value"] if cached else None
-    if hasattr(repo, "upsert_signal"):
-        repo.upsert_signal(SOURCE, KEY, now, fresh, now)
-    return fresh
+    return cached_signal(repo, SOURCE, KEY,
+                         lambda: fetch_price_ref(fetcher=fetcher, api_key=api_key),
+                         now=now, max_age_sec=max_age_sec)

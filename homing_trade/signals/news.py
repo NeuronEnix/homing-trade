@@ -6,11 +6,12 @@ parsed with the stdlib (no feedparser dep), deduped, bounded, cached, and inject
 CONTEXT — what's in the news, not a trade trigger. Every feed is best-effort: one failing feed
 doesn't drop the others, and a total failure degrades to None without crashing the loop.
 """
-import time
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
 import requests
+
+from homing_trade.signals.cache import cached_signal
 
 SOURCE = "news"
 KEY = "headlines"
@@ -84,13 +85,5 @@ def get_news(repo, *, fetcher=None, now=None, max_age_sec=DEFAULT_MAX_AGE_SEC):
     """Cache-aware recent headlines. Returns the list or None. Serves a cached value within
     `max_age_sec`; else refetches + caches; on failure returns the stale cached value (or None).
     Reads/writes signal_cache(source='news', key='headlines'). Epoch MS."""
-    now = int(now if now is not None else time.time() * 1000)
-    cached = repo.get_signal(SOURCE, KEY) if hasattr(repo, "get_signal") else None
-    if cached and (now - cached["fetched_at"]) < max_age_sec * 1000:
-        return cached["value"]
-    fresh = fetch_news(fetcher=fetcher)
-    if fresh is None:
-        return cached["value"] if cached else None
-    if hasattr(repo, "upsert_signal"):
-        repo.upsert_signal(SOURCE, KEY, now, fresh, now)
-    return fresh
+    return cached_signal(repo, SOURCE, KEY, lambda: fetch_news(fetcher=fetcher),
+                         now=now, max_age_sec=max_age_sec)
