@@ -8,6 +8,7 @@ It calls the Anthropic API per decision (needs ANTHROPIC_API_KEY; costs money), 
 consults Claude only every `interval_sec` seconds and HOLDs in between. With no key,
 no `anthropic` package, or any error, it degrades to HOLD — it never crashes the bot.
 """
+import hashlib
 import json
 import time
 from homing_trade import feed
@@ -16,6 +17,11 @@ from homing_trade.skills.indicators import ema, rsi
 from homing_trade.models import Candle, Signal
 
 DEFAULT_TIMEFRAMES = ("15m", "1h", "4h")   # bird's-eye context; AI drills down on request
+
+# Identity of THIS system prompt. Bump on any change to _SYSTEM/_SCHEMA so a decision is
+# attributable to the exact prompt that produced it. When an approved playbook is injected, the
+# effective prompt_version becomes f"{PROMPT_VERSION}+{playbook_version}".
+PROMPT_VERSION = "mtf-v1"
 
 _SCHEMA = {
     "type": "object",
@@ -56,6 +62,9 @@ _SYSTEM = (
     "extreme to fade, or a clean breakout with expanding volatility. Avoid choppy, low-volatility, "
     "or conflicting tapes — they bleed fees, especially at high leverage. LONG only when flat and "
     "bullish; SHORT only when flat and bearish; CLOSE to exit an open position when the thesis is gone.\n\n"
+    "If the data includes a 'playbook' field, those are hard-won rules distilled from YOUR OWN "
+    "past trades on this instrument (human-approved). Treat them as priors: follow them unless "
+    "the current setup clearly contradicts one, and weigh them in your rationale.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
     "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
@@ -113,7 +122,8 @@ class LlmTrader(Strategy):
     def __init__(self, model="claude-opus-4-8", interval_sec=900, client=None,
                  max_tokens=600, backend="api", cli_timeout=120,
                  pair="B-BTC_USDT", provider=None, name=None, clock=None, min_interval_sec=60,
-                 timeframes=DEFAULT_TIMEFRAMES, chart_limit=150):
+                 timeframes=DEFAULT_TIMEFRAMES, chart_limit=150,
+                 playbook_provider=None, playbook_max_rules=12):
         self.name = name or "llm_trader"   # per-instance so multiple brains get separate wallets
         self.model = model
         self.interval_sec = interval_sec        # the configured MAX gap between consults (seconds)
@@ -130,6 +140,39 @@ class LlmTrader(Strategy):
         self._clock = clock or time.time  # WALL-CLOCK cadence — decoupled from the candle loop
         self._last_decision_ts = None
         self._next_interval_sec = interval_sec  # AI sets this each consult (<= interval_sec)
+        # callable() -> the current published playbook row ({"version", "rules_json"}) or None.
+        # Wired by SkillRunner to read the ledger; None in unit tests / when no playbook exists.
+        self._playbook_provider = playbook_provider
+        self.playbook_max_rules = playbook_max_rules
+
+    def set_playbook_provider(self, provider):
+        """Inject (post-construction) the source of this trader's current playbook — SkillRunner
+        wires it to the ledger since build_ai_traders has no ledger reference."""
+        self._playbook_provider = provider
+
+    def _current_playbook(self):
+        """(version, [rule, ...]) for THIS strategy's current playbook — bounded to top-K, with
+        blank/non-string rules dropped. Degrades to (None, []) on no provider, a read error, a
+        malformed rules_json, or an empty rule set, so a failure just yields the base prompt and
+        never crashes the consult. (None, []) also means: claim no playbook_version, since
+        nothing was actually injected."""
+        if not self._playbook_provider:
+            return (None, [])
+        try:
+            pbk = self._playbook_provider()
+            if not pbk:
+                return (None, [])
+            parsed = json.loads(pbk["rules_json"])
+            # Only a dict-with-"rules" (the publish_playbook contract) or a bare list is valid.
+            # A scalar (e.g. a JSON string) is NOT iterated — that would mint per-character
+            # "rules" from a corrupted row; treat it as no rules instead.
+            raw_rules = (parsed.get("rules", []) if isinstance(parsed, dict)
+                         else parsed if isinstance(parsed, list) else [])
+            rules = [r.strip() for r in raw_rules
+                     if isinstance(r, str) and r.strip()][:self.playbook_max_rules]
+            return (pbk.get("version"), rules) if rules else (None, [])
+        except Exception:
+            return (None, [])
 
     def _get_client(self):
         if self._client is not None:
@@ -196,7 +239,7 @@ class LlmTrader(Strategy):
                           "end": spec.get("end") or None})
         return valid or None
 
-    def _build_context(self, candles, position):
+    def _build_context(self, candles, position, playbook_rules=()):
         charts = {}
         for spec in self._specs():
             iv = spec.get("interval")
@@ -212,12 +255,15 @@ class LlmTrader(Strategy):
             label = iv if not (start or end) else f"{iv} {start or ''}..{end or ''}".strip()
             charts[label] = (_tf_summary([x.close for x in c], c) if len(c) >= 21
                              else {"n": len(c), "note": "insufficient data"})
-        return {
+        ctx = {
             "charts": charts,
             "position": (position.side if position else "flat"),
             "max_check_sec": self.interval_sec,           # ceiling for next_check_in_sec
             "available_intervals": list(feed.INTERVALS),  # what you may request
         }
+        if playbook_rules:
+            ctx["playbook"] = list(playbook_rules)         # learned, human-approved priors
+        return ctx
 
     def on_candle(self, candles, position):
         # Cadence: consult Claude only every interval_sec seconds of WALL-CLOCK time, so the
@@ -225,8 +271,17 @@ class LlmTrader(Strategy):
         now = self._clock()
         if self._last_decision_ts is not None and (now - self._last_decision_ts) < self._next_interval_sec:
             return Signal("HOLD", reason=f"waiting (next LLM check in ~{self._next_interval_sec:g}s)")
-        ctx = self._build_context(candles, position)
+        pb_version, pb_rules = self._current_playbook()
+        ctx = self._build_context(candles, position, pb_rules)
         user = "Decide the trade. Charts:\n" + json.dumps(ctx)
+        # Provenance for replay/attribution: the prompt identity (base ⊕ playbook version) and a
+        # LOGICAL fingerprint of (system, user-context). It's a stable identity for "same prompt
+        # → same hash", NOT the exact wire bytes (the API sends system/content separately; the
+        # CLI appends a trailing instruction). Recorded by process_tick on the decision + response.
+        prompt_version = PROMPT_VERSION if not pb_version else f"{PROMPT_VERSION}+{pb_version}"
+        prompt_hash = hashlib.sha256((_SYSTEM + "\n" + user).encode("utf-8")).hexdigest()[:16]
+        meta_prov = {"prompt_version": prompt_version, "playbook_version": pb_version,
+                     "prompt_hash": prompt_hash}
         try:
             data, raw = self._decide_via_cli(user) if self.backend == "cli" else self._decide_via_api(user)
             self._last_decision_ts = now
@@ -264,7 +319,10 @@ class LlmTrader(Strategy):
                 raw=raw,
                 meta={"observation": obs, "prediction": pred, "rationale": rat,
                       "next_check_in_sec": self._next_interval_sec,
-                      "requested_charts": self._requested},
+                      "requested_charts": self._requested, **meta_prov},
             )
         except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD + error alert
-            return Signal("HOLD", reason=f"llm unavailable: {exc}", error=str(exc))
+            # Carry the provenance even on failure, so a failing consult's error row is still
+            # attributable to the exact prompt/playbook that produced it.
+            return Signal("HOLD", reason=f"llm unavailable: {exc}", error=str(exc),
+                          meta=meta_prov)
