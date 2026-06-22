@@ -16,6 +16,7 @@ Layers:
 import json
 
 from homing_trade.experiments import two_sample_test
+from homing_trade.profit_mirage import assess_window
 
 DEFAULT_ALPHA = 0.05
 DEFAULT_MIN_SAMPLES = 30        # per variant; below this the OOS evidence is too thin to promote
@@ -114,7 +115,8 @@ def _promotion_blocked(repo, challenger, now_ms, cooldown_ms):
 def evaluate_and_maybe_promote(repo, experiment_id, challenger_samples, baseline_samples, now_ms,
                                *, alpha=DEFAULT_ALPHA, min_samples=DEFAULT_MIN_SAMPLES,
                                family_window=None, family_window_ms=DEFAULT_FAMILY_WINDOW_MS,
-                               reject_cooldown_ms=DEFAULT_REJECT_COOLDOWN_MS):
+                               reject_cooldown_ms=DEFAULT_REJECT_COOLDOWN_MS,
+                               oos_window=None, cutoff_ms=None):
     """Conclude experiment `experiment_id` from its OOS samples and, iff the gate passes, file a
     human-gated promotion proposal. Idempotent + crash-safe: a concluded experiment is not
     re-evaluated; a duplicate pending (or recently-rejected) promotion is not re-filed; and the
@@ -124,13 +126,25 @@ def evaluate_and_maybe_promote(repo, experiment_id, challenger_samples, baseline
     The search-budget family (the Bonferroni denominator) is experiments STARTED in the last
     `family_window_ms` (a rolling window, so the bar doesn't tighten to impossibility forever); pass
     an explicit `family_window=(lo, hi)` to override. challenger_samples ↔ variant_a; baseline_samples
-    ↔ variant_b. NEVER auto-enables anything."""
+    ↔ variant_b. NEVER auto-enables anything.
+
+    Profit-mirage guard (Phase 7 #6): pass `oos_window=(start_ms, end_ms)` + `cutoff_ms` and the gate
+    refuses to promote on evidence whose window is not entirely post-cutoff — even a significant
+    pre-cutoff result is treated as a possible memorized-data mirage."""
     exp = repo.get_experiment(experiment_id)
     if exp is None:
         raise ValueError(f"no experiment {experiment_id}")
     if exp["status"] == "concluded":
         return {"promote": False, "already_concluded": True, "proposal_id": None,
                 "reason": "experiment already concluded"}
+    # Profit-mirage guard: untrusted (pre-cutoff) evidence can never promote — conclude + file nothing.
+    if oos_window is not None and cutoff_ms is not None:
+        trust = assess_window(oos_window[0], oos_window[1], cutoff_ms=cutoff_ms, walk_forward=True)
+        if not trust["trusted"]:
+            repo.conclude_experiment(experiment_id, now_ms, len(challenger_samples),
+                                     len(baseline_samples), "untrusted", None)
+            return {"promote": False, "trusted": False, "proposal_id": None,
+                    "reason": trust["reason"]}
     # Too few samples to even run the two-sample test -> conclude inconclusive, file nothing.
     if len(challenger_samples) < 2 or len(baseline_samples) < 2:
         repo.conclude_experiment(experiment_id, now_ms, len(challenger_samples),

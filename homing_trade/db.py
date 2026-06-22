@@ -329,6 +329,8 @@ PROTECTED_PROPOSAL_FIELDS = frozenset({
     "fee", "slippage", "risk_vol_window", "risk_vol_threshold", "committee_threshold",
     # regime-aware portfolio gate (sizing weight + committee entry bar — human-gated, not auto-tuned)
     "regime_filter_enabled", "regime_unfavored_weight", "regime_committee_threshold_scale",
+    # profit-mirage trust cutoff — loosening it would let pre-cutoff mirages promote; human-gated only
+    "trust_cutoff_iso",
     # live-arming
     "live_enabled", "live_dry_run", "dry_run", "live",
     # alert routing + secret/env names

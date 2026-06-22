@@ -20,6 +20,7 @@ lookback through `run_backtest` is a noted follow-on.
 """
 from homing_trade.backtest import run_backtest
 from homing_trade import metrics
+from homing_trade.profit_mirage import is_post_cutoff, partition_folds_by_trust
 
 _DAY_MS = 86_400_000
 
@@ -66,7 +67,7 @@ def _aggregate_oos(fold_results, starting_balance):
 
 
 def walk_forward(skill_factory, candles, cfg, starting_balance, *, train, test, step=None,
-                 window=200, fit_fn=None):
+                 window=200, fit_fn=None, cutoff_ms=None):
     """Roll a train/test split forward over `candles`; evaluate each test window out-of-sample.
 
     skill_factory: a zero-arg callable returning a FRESH skill per fold (e.g. the skill CLASS), so no
@@ -76,10 +77,13 @@ def walk_forward(skill_factory, candles, cfg, starting_balance, *, train, test, 
     fit_fn(skill, train_candles, cfg) -> cfg' : freeze params on the train slice and return the cfg to
         evaluate the test slice with. Default: identity (no fit) — returning a falsy value also keeps
         the original cfg. fit_fn must NOT look beyond `train_candles`.
+    cutoff_ms: the profit-mirage trust cutoff (Phase 7 #6). When given, each fold is tagged
+        `post_cutoff` (its test window entirely after the cutoff) and a `trusted_oos` aggregate is
+        computed over ONLY the post-cutoff folds — pre-cutoff folds may be a memorized-data mirage.
 
-    Returns {"strategy", "train", "test", "step", "window", "folds": [per-fold result...],
-             "oos": {compounded summary}}. Each per-fold result is run_backtest's dict plus
-    {"fold", "train_range", "test_range"}.
+    Returns {"strategy", "train", "test", "step", "window", "cutoff_ms", "folds": [per-fold result...],
+             "oos": {all folds}, "trusted_oos": {post-cutoff folds only}}. Each per-fold result is
+    run_backtest's dict plus {"fold", "train_range", "test_range", "post_cutoff"}.
     """
     if not callable(skill_factory):
         raise TypeError("skill_factory must be a zero-arg callable returning a FRESH skill per fold "
@@ -97,10 +101,14 @@ def walk_forward(skill_factory, candles, cfg, starting_balance, *, train, test, 
         res = run_backtest(skill, candles[te_lo:te_hi], fold_cfg, starting_balance, window=window)
         res = {**res, "fold": k,
                "train_range": (candles[tr_lo].time, candles[tr_hi - 1].time),
-               "test_range": (candles[te_lo].time, candles[te_hi - 1].time)}
+               "test_range": (candles[te_lo].time, candles[te_hi - 1].time),
+               "post_cutoff": is_post_cutoff(candles[te_lo].time, cutoff_ms)}
         fold_results.append(res)
+    trusted, _ = partition_folds_by_trust(fold_results, cutoff_ms)
     return {"strategy": name, "train": train, "test": test, "step": eff_step, "window": window,
-            "folds": fold_results, "oos": _aggregate_oos(fold_results, starting_balance)}
+            "cutoff_ms": cutoff_ms, "folds": fold_results,
+            "oos": _aggregate_oos(fold_results, starting_balance),
+            "trusted_oos": _aggregate_oos(trusted, starting_balance)}
 
 
 def _format(out):
@@ -114,12 +122,21 @@ def _format(out):
         lines.append(f"  {f['fold']:>4} {f['return_pct']:>12.2f}% {f['trades']:>7} "
                      f"{f['sharpe']:>8.2f} {f['max_drawdown'] * 100:>7.2f}%")
     if o["folds"]:
-        lines.append(f"  OOS: compounded={o['compounded_return_pct']:.2f}%  "
+        lines.append(f"  OOS (all): compounded={o['compounded_return_pct']:.2f}%  "
                      f"hit_rate={o['hit_rate'] * 100:.0f}%  trades={o['total_trades']}  "
                      f"mean_sharpe={o['mean_sharpe']:.2f}  worstDD={o['worst_drawdown'] * 100:.2f}%  "
                      f"worst_fold={o['worst_return_pct']:.2f}%")
     else:
         lines.append("  OOS: no folds (not enough candles for one train+test span)")
+    # Profit-mirage guard: the trusted (post-cutoff) subset is the only evidence to act on.
+    t = out.get("trusted_oos")
+    if out.get("cutoff_ms") is not None and t is not None:
+        if t["folds"]:
+            lines.append(f"  TRUSTED (post-cutoff {t['folds']}/{o['folds']} folds): "
+                         f"compounded={t['compounded_return_pct']:.2f}%  "
+                         f"hit_rate={t['hit_rate'] * 100:.0f}%  mean_sharpe={t['mean_sharpe']:.2f}")
+        else:
+            lines.append("  TRUSTED: no post-cutoff folds — all OOS data predates the cutoff (mirage risk)")
     return "\n".join(lines)
 
 
@@ -131,6 +148,7 @@ def main(argv=None, cfg=None):
     from homing_trade.repository import Repository
     from homing_trade.engine import build_skills
     from homing_trade.history import ensure_history
+    from homing_trade.profit_mirage import cutoff_ms_from_iso
 
     cfg = cfg or CONFIG
     p = argparse.ArgumentParser(
@@ -144,10 +162,13 @@ def main(argv=None, cfg=None):
     p.add_argument("--test", type=int, default=200, help="out-of-sample test-window candles per fold")
     p.add_argument("--step", type=int, default=None, help="fold stride (default: test → no overlap)")
     p.add_argument("--window", type=int, default=200, help="indicator lookback inside run_backtest")
+    p.add_argument("--cutoff", default=getattr(cfg, "trust_cutoff_iso", ""),
+                   help="profit-mirage trust cutoff (ISO UTC); only post-cutoff folds are trusted")
     args = p.parse_args(argv)
 
     names = [args.skill] if args.skill else list(cfg.enabled_skills)
     run_cfg = replace(cfg, interval=args.interval)
+    cutoff_ms = cutoff_ms_from_iso(args.cutoff)
     repo = Repository.open(cfg.db_path)
     try:
         now_ms = int(time.time() * 1000)
@@ -155,13 +176,14 @@ def main(argv=None, cfg=None):
         candles = repo.get_candles_range(cfg.pair_candles, args.interval,
                                          now_ms - args.days * _DAY_MS, now_ms, source=args.source)
         print(f"Walk-forward: {cfg.pair_candles} {args.interval}  last {args.days}d  "
-              f"source={args.source}  candles={len(candles)}")
+              f"source={args.source}  candles={len(candles)}  trust_cutoff={args.cutoff or '(none)'}")
         for n in names:
             out = walk_forward(lambda n=n: build_skills([n])[0], candles, run_cfg, args.balance,
-                               train=args.train, test=args.test, step=args.step, window=args.window)
+                               train=args.train, test=args.test, step=args.step, window=args.window,
+                               cutoff_ms=cutoff_ms)
             print(_format(out))
-        print("Note: only OOS (test-window) results count as 'learned' — an in-sample fit "
-              "cannot inflate these.")
+        print("Note: only TRUSTED (post-cutoff, walk-forward) results count as evidence — pre-cutoff "
+              "folds may be a memorized-data mirage; an in-sample fit cannot inflate these either.")
     finally:
         repo.close()
 
