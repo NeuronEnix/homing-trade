@@ -3,7 +3,7 @@ import argparse
 import time
 from dataclasses import replace
 from homing_trade.config import CONFIG
-from homing_trade.db import Database
+from homing_trade.repository import Repository
 from homing_trade.broker import Broker
 from homing_trade.engine import build_skills, process_tick
 from homing_trade.ledger import MemoryLedger
@@ -74,13 +74,13 @@ def main(argv=None, cfg=CONFIG):
     skills = build_skills(names)
     run_cfg = replace(cfg, interval=args.interval)
 
-    db = Database(cfg.db_path)
+    repo = Repository.open(cfg.db_path)
     try:
         now_ms = int(time.time() * 1000)
-        ensure_history(db, cfg.pair_candles, args.interval, args.days, now_ms)
+        ensure_history(repo, cfg.pair_candles, args.interval, args.days, now_ms)
         start = (now_ms - args.days * _DAY_MS)
-        candles = db.get_candles_range(cfg.pair_candles, args.interval, start, now_ms,
-                                       source=args.source)
+        candles = repo.get_candles_range(cfg.pair_candles, args.interval, start, now_ms,
+                                         source=args.source)
         results = [run_backtest(s, candles, run_cfg, args.balance) for s in skills]
         print(f"Backtest: {cfg.pair_candles} {args.interval}  last {args.days}d  "
               f"source={args.source}  candles={len(candles)}")
@@ -90,7 +90,7 @@ def main(argv=None, cfg=CONFIG):
         if args.csv:
             _write_csv(args.csv, results)
     finally:
-        db.close()
+        repo.close()
 
 
 if __name__ == "__main__":

@@ -83,5 +83,11 @@ class Repository(Ledger):
     def trades_after(self, last_id) -> list:
         return self.db.trades_after(last_id)
 
+    def get_candles_range(self, pair, interval, start_ms, end_ms, source="all"):
+        return self.db.get_candles_range(pair, interval, start_ms, end_ms, source=source)
+
+    def get_candle_bounds(self, pair, interval):
+        return self.db.get_candle_bounds(pair, interval)
+
     def close(self):
         return self.db.close()
