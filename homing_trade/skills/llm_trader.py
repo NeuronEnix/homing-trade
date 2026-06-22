@@ -23,7 +23,7 @@ DEFAULT_TIMEFRAMES = ("15m", "1h", "4h")   # bird's-eye context; AI drills down 
 # Identity of THIS system prompt. Bump on any change to _SYSTEM/_SCHEMA so a decision is
 # attributable to the exact prompt that produced it. When an approved playbook is injected, the
 # effective prompt_version becomes f"{PROMPT_VERSION}+{playbook_version}".
-PROMPT_VERSION = "mtf-v2"
+PROMPT_VERSION = "mtf-v3"
 
 _SCHEMA = {
     "type": "object",
@@ -71,6 +71,11 @@ _SYSTEM = (
     "classification), use it as a CONTEXTUAL sentiment gauge — extremes often mark exhaustion "
     "(extreme greed -> caution on fresh longs; extreme fear -> caution on fresh shorts) — never as "
     "a standalone trigger; the price action across timeframes still leads.\n\n"
+    "If the data includes a 'derivatives' field (perp funding rate + open interest, with a "
+    "cross-venue funding_skew), read it as POSITIONING: strongly positive funding means longs are "
+    "crowded and paying (contrarian caution on fresh longs), strongly negative means shorts are "
+    "crowded; rising open interest confirms conviction behind a move. Use it as confluence/contra "
+    "context, never a standalone trigger.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
     "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
@@ -142,29 +147,27 @@ class LlmTrader(Strategy):
         # Wired by SkillRunner to read the ledger; None in unit tests / when no playbook exists.
         self._playbook_provider = playbook_provider
         self.playbook_max_rules = playbook_max_rules
-        # callable() -> the current external sentiment reading (e.g. Fear & Greed dict) or None.
-        # Wired by SkillRunner to the cached signal; None in unit tests / when ingestion is off.
-        self._fng_provider = fng_provider
+        # External-signal registry: {context_field -> callable() -> JSON-able reading or None}.
+        # SkillRunner wires the Phase-6 feeds (fear_greed, derivatives, ...) to cached signals;
+        # empty in unit tests / when ingestion is off. Each is best-effort: a None/raising provider
+        # just omits its field so the consult proceeds on price action alone.
+        self._context_providers = {}
+        if fng_provider:
+            self._context_providers["fear_greed"] = fng_provider
 
     def set_playbook_provider(self, provider):
         """Inject (post-construction) the source of this trader's current playbook — SkillRunner
         wires it to the ledger since build_ai_traders has no ledger reference."""
         self._playbook_provider = provider
 
-    def set_fng_provider(self, provider):
-        """Inject (post-construction) the source of the current Fear & Greed reading — SkillRunner
-        wires it to the cached signal; build_ai_traders has no ledger reference."""
-        self._fng_provider = provider
+    def add_context_provider(self, field, provider):
+        """Register an external-signal provider; _build_context injects provider()'s result under
+        `field` (skipped when it returns None or raises). Phase-6 feeds plug in here."""
+        self._context_providers[field] = provider
 
-    def _current_fng(self):
-        """The current sentiment reading to inject, or None. Never raises — a failed read just
-        omits the field so the consult proceeds on price action alone."""
-        if not self._fng_provider:
-            return None
-        try:
-            return self._fng_provider() or None
-        except Exception:
-            return None
+    def set_fng_provider(self, provider):
+        """Back-compat shim: register the Fear & Greed reading under 'fear_greed'."""
+        self.add_context_provider("fear_greed", provider)
 
     def _current_playbook(self):
         """(version, [rule, ...]) for THIS strategy's current playbook — bounded to top-K, with
@@ -254,9 +257,14 @@ class LlmTrader(Strategy):
         }
         if playbook_rules:
             ctx["playbook"] = list(playbook_rules)         # learned, human-approved priors
-        fng = self._current_fng()
-        if fng:
-            ctx["fear_greed"] = fng                        # external sentiment context (Phase 6)
+        # External research signals (Phase 6) — each best-effort, omitted on None/error.
+        for field, provider in self._context_providers.items():
+            try:
+                val = provider()
+            except Exception:
+                val = None
+            if val:
+                ctx[field] = val
         return ctx
 
     def on_candle(self, candles, position):
