@@ -80,14 +80,14 @@ Progress: 10/10 _(reflections + append-only playbooks (v7) + proposals approval-
 ## Phase 5 — Multi-AI provider registry
 Goal: any model behind `AI_<NAME>_*` env flags — whitelisted, each its own wallet+brain, with per-provider cost accounting.
 
-- [ ] Generalize `ai_traders.build_ai_traders` from the two hard-coded brains (`llm_claude_code`, `llm_anthropic`) to a registry that discovers `AI_<NAME>_IS_ENABLED` / `AI_<NAME>_POLL_IN_SEC` / `AI_<NAME>_BACKEND` / `AI_<NAME>_MODEL` env flags.
+- [x] Generalize `ai_traders.build_ai_traders` from the two hard-coded brains (`llm_claude_code`, `llm_anthropic`) to a registry that discovers `AI_<NAME>_IS_ENABLED` / `AI_<NAME>_POLL_IN_SEC` / `AI_<NAME>_BACKEND` / `AI_<NAME>_MODEL` env flags. _(build_ai_traders now merges the two built-ins (driven by their typed Config fields, back-compat — explicit env poll/model wins, a bare enable flag keeps the Config value) with any provider discovered generically from `AI_<NAME>_*`; each spins up as `llm_<name_lower>` with its own wallet/backend/cadence/model. Unsupported backends (outside cli/api — adapters are #2) are SKIPPED not mis-routed; the approved-name whitelist is #3. from_env captures the AI_* env subset into `Config.ai_providers_env` and the registry discovers from that snapshot (never the live os.environ) so engine/backtest/test composition is deterministic. Adversarial review fixed two MAJORs (bare-flag clobbering Config poll/model; ambient-env read) before merge. test_ai_traders 17 green; suite 420)_
 - [ ] Backend adapters behind a common interface: `cli` (Claude CLI), `api` (Anthropic), plus OpenAI, Mistral, Llama/local — each optional, degrading to HOLD if its SDK/key is absent (mirror `llm_trader`'s never-crash contract).
 - [ ] Whitelist enforcement: only registered/approved provider names spin up a wallet+brain.
 - [ ] Per-provider cost accounting: a `cost_ledger(strategy, ts, model, prompt_tokens, completion_tokens, usd)` table; the leaderboard shows tokens and $ per provider.
 - [ ] UI: per-AI cost column + enable/disable toggle (extends Phase-3 leaderboard).
 - [ ] Tests: `test_ai_registry.py` (env discovery, whitelist, unknown/missing-key degrades cleanly).
 
-Progress: 0/6
+Progress: 1/6 _(#1 the env-discovered registry landed (PR #50): generic `AI_<NAME>_*` discovery + back-compat built-ins + safe skip of unsupported backends + deterministic Config-snapshot discovery, all tested. Next: #2 backend adapters (OpenAI/Mistral/Llama, degrade-to-HOLD) behind a common interface)_
 
 ---
 
