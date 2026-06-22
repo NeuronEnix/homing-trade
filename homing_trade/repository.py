@@ -130,5 +130,24 @@ class Repository(Ledger):
     def trade_outcomes(self, strategy=None, as_of=None) -> list:
         return self.db.trade_outcomes(strategy, as_of)
 
+    # --- Phase-4 reflections + playbooks ---
+    def record_reflection(self, *args, **kwargs):
+        return self.db.record_reflection(*args, **kwargs)
+
+    def recent_reflections(self, strategy=None, limit=50):
+        return self.db.recent_reflections(strategy, limit)
+
+    def publish_playbook(self, *args, **kwargs):
+        return self.db.publish_playbook(*args, **kwargs)
+
+    def latest_playbook(self, strategy):
+        return self.db.latest_playbook(strategy)
+
+    def get_playbook(self, version):
+        return self.db.get_playbook(version)
+
+    def retire_playbook(self, version, retired_ts):
+        return self.db.retire_playbook(version, retired_ts)
+
     def close(self):
         return self.db.close()

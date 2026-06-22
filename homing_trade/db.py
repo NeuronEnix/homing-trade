@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -164,6 +164,36 @@ MIGRATIONS = {
     6: [
         "ALTER TABLE trades ADD COLUMN decision_id TEXT",
         "ALTER TABLE trades ADD COLUMN regime_at_entry TEXT",
+    ],
+    # v7: Phase-4 learn->correct foundation. `reflections` = the AI's batched/per-trade
+    # retrospection over trade_outcomes (lesson + a proposed playbook version). `playbooks` =
+    # append-only, versioned rule sets (a published version's rules_json is never mutated;
+    # only retired_ts is ever set). Both are model-authored (Hierarchy of Truth).
+    7: [
+        """CREATE TABLE IF NOT EXISTS reflections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy TEXT NOT NULL,
+            kind TEXT NOT NULL,                 -- 'per_trade' | 'periodic'
+            ts INTEGER NOT NULL,
+            batch_from_ts INTEGER,
+            batch_to_ts INTEGER,
+            trade_ids_json TEXT,
+            metrics_json TEXT,
+            lesson TEXT,
+            new_playbook_version TEXT,
+            model TEXT,
+            raw TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS playbooks (
+            version TEXT PRIMARY KEY,           -- globally-unique version id
+            strategy TEXT NOT NULL,
+            created_ts INTEGER NOT NULL,
+            rules_json TEXT NOT NULL,
+            parent_version TEXT,
+            retired_ts INTEGER                  -- set when superseded; rules_json is never UPDATEd
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_reflections_strategy_ts ON reflections(strategy, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_playbooks_strategy ON playbooks(strategy, created_ts)",
     ],
 }
 
@@ -612,6 +642,62 @@ class Database:
             q += " WHERE " + " AND ".join(cond)
         q += " ORDER BY exit_ts ASC"
         return [dict(r) for r in self.conn.execute(q, params)]
+
+    # --- Phase-4 learn->correct store: reflections + append-only playbooks ---------------
+    def record_reflection(self, strategy, kind, ts, *, batch_from_ts=None, batch_to_ts=None,
+                          trade_ids=None, metrics=None, lesson=None, new_playbook_version=None,
+                          model=None, raw=None) -> int:
+        """Persist one reflection (a lesson over a batch of outcomes, or a per-trade critique).
+        `trade_ids`/`metrics` are JSON-serialized here. Returns the new reflection id."""
+        cur = self.conn.execute(
+            """INSERT INTO reflections(strategy, kind, ts, batch_from_ts, batch_to_ts,
+                   trade_ids_json, metrics_json, lesson, new_playbook_version, model, raw)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (strategy, kind, ts, batch_from_ts, batch_to_ts,
+             json.dumps(trade_ids) if trade_ids is not None else None,
+             json.dumps(metrics) if metrics is not None else None,
+             lesson, new_playbook_version, model, raw))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def recent_reflections(self, strategy=None, limit=50):
+        # Newest by event time (ts), id as a stable tiebreak — uses idx_reflections_strategy_ts
+        # for the per-strategy case.
+        if strategy is not None:
+            rows = self.conn.execute(
+                "SELECT * FROM reflections WHERE strategy=? ORDER BY ts DESC, id DESC LIMIT ?",
+                (strategy, limit))
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM reflections ORDER BY ts DESC, id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows]
+
+    def publish_playbook(self, version, strategy, created_ts, rules, *, parent_version=None):
+        """Append a new immutable playbook version. `rules` is JSON-serialized. A published
+        version's rules_json is NEVER updated afterwards — refinement supersedes (retire +
+        publish a child), it never mutates history."""
+        self.conn.execute(
+            "INSERT INTO playbooks(version, strategy, created_ts, rules_json, parent_version) "
+            "VALUES(?,?,?,?,?)",
+            (version, strategy, created_ts, json.dumps(rules), parent_version))
+        self.conn.commit()
+
+    def latest_playbook(self, strategy):
+        """The current (non-retired) playbook for a strategy, or None."""
+        row = self.conn.execute(
+            "SELECT * FROM playbooks WHERE strategy=? AND retired_ts IS NULL "
+            "ORDER BY created_ts DESC, rowid DESC LIMIT 1", (strategy,)).fetchone()
+        return dict(row) if row else None
+
+    def get_playbook(self, version):
+        row = self.conn.execute("SELECT * FROM playbooks WHERE version=?", (version,)).fetchone()
+        return dict(row) if row else None
+
+    def retire_playbook(self, version, retired_ts) -> None:
+        """Mark a version superseded. Only sets retired_ts — never touches rules_json."""
+        self.conn.execute("UPDATE playbooks SET retired_ts=? WHERE version=?",
+                          (retired_ts, version))
+        self.conn.commit()
 
     def table_names(self) -> set:
         """Names of all real tables in the live DB (excludes SQLite internals). Used by the
