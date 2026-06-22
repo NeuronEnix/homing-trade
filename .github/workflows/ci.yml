@@ -28,5 +28,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      - name: Check ROADMAP consistency
+        run: python tools/check_roadmap.py
       - name: Run the test suite
         run: python -m pytest -q
