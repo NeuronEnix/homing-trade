@@ -12,6 +12,8 @@ import hashlib
 import json
 import time
 from homing_trade import feed
+from homing_trade import llm_backends
+from homing_trade.llm_backends import _extract_json  # re-exported for back-compat
 from homing_trade.skills.base import Strategy
 from homing_trade.skills.indicators import ema, rsi
 from homing_trade.models import Candle, Signal
@@ -95,14 +97,6 @@ def _tf_summary(closes, candles):
     }
 
 
-def _extract_json(text):
-    """Pull the first {...} JSON object out of an LLM's text reply."""
-    s, e = text.find("{"), text.rfind("}")
-    if s == -1 or e == -1 or e < s:
-        raise ValueError("no JSON object in LLM response")
-    return json.loads(text[s:e + 1])
-
-
 def resample(candles, factor):
     """Aggregate 1m candles into `factor`-minute OHLC candles (oldest-first preserved)."""
     out = []
@@ -130,7 +124,7 @@ class LlmTrader(Strategy):
         self.min_interval_sec = min_interval_sec  # floor the AI can shorten to (watch closely)
         self._client = client
         self.max_tokens = max_tokens
-        self.backend = backend          # "cli" (claude headless, no key) | "api" (anthropic SDK)
+        self.backend = backend          # one of llm_backends.BACKENDS (cli/api/openai/mistral/llama)
         self.cli_timeout = cli_timeout
         self.pair = pair
         self.timeframes = tuple(timeframes)     # default charts shown each consult
@@ -174,39 +168,13 @@ class LlmTrader(Strategy):
         except Exception:
             return (None, [])
 
-    def _get_client(self):
-        if self._client is not None:
-            return self._client
-        import anthropic  # lazy — only needed when actually consulting Claude
-        self._client = anthropic.Anthropic()
-        return self._client
-
-    def _decide_via_api(self, user):
-        """Return (decision_dict, raw_text)."""
-        client = self._get_client()
-        resp = client.messages.create(
-            model=self.model, max_tokens=self.max_tokens, system=_SYSTEM,
-            output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
-            messages=[{"role": "user", "content": user}],
-        )
-        text = next(b.text for b in resp.content if getattr(b, "type", None) == "text")
-        return _extract_json(text), text
-
-    def _decide_via_cli(self, user):
-        """Shell out to the local `claude` CLI (headless) — uses existing Claude Code auth,
-        no API key. Returns (decision_dict, raw_envelope). Heavier per call but no extra billing."""
-        import subprocess
-        prompt = f"{_SYSTEM}\n\n{user}\n\nRespond with ONLY the JSON object, no prose."
-        cmd = ["claude", "-p", prompt, "--output-format", "json"]
-        if self.model:
-            cmd += ["--model", self.model]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.cli_timeout)
-        if proc.returncode != 0:
-            raise RuntimeError(f"claude cli rc={proc.returncode}: {proc.stderr[:300]}")
-        env = json.loads(proc.stdout)
-        if env.get("is_error"):
-            raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:300]}")
-        return _extract_json(str(env.get("result", ""))), proc.stdout
+    def _decide(self, user):
+        """Make one decision via the configured backend adapter. Returns (decision_dict, raw_text);
+        raises on any provider/SDK/network error (on_candle catches -> HOLD)."""
+        req = llm_backends.BackendRequest(
+            prompt=user, system=_SYSTEM, model=self.model, max_tokens=self.max_tokens,
+            schema=_SCHEMA, client=self._client, cli_timeout=self.cli_timeout)
+        return llm_backends.decide(self.backend, req)
 
     def _provide(self, interval, limit=150, start=None, end=None):
         if self._provider is not None:
@@ -283,7 +251,7 @@ class LlmTrader(Strategy):
         meta_prov = {"prompt_version": prompt_version, "playbook_version": pb_version,
                      "prompt_hash": prompt_hash}
         try:
-            data, raw = self._decide_via_cli(user) if self.backend == "cli" else self._decide_via_api(user)
+            data, raw = self._decide(user)
             self._last_decision_ts = now
             action = str(data["action"]).upper()
             # guard the mapping so the engine never gets an impossible action

@@ -108,6 +108,14 @@ def test_bad_poll_value_falls_back_to_default():
     assert ts[0].interval_sec == 3600
 
 
+def test_phase5_2_backends_now_supported():
+    # The adapter registry (Phase 5 #2) added openai/mistral/llama -> they now spin up a brain.
+    for backend in ("openai", "mistral", "llama"):
+        env = {"AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": backend}
+        ts = build_ai_traders(Config(), env=env)
+        assert len(ts) == 1 and ts[0].backend == backend and ts[0].name == "llm_grok"
+
+
 def test_bare_env_flag_keeps_config_supplied_poll():
     # Built-in enabled by its Config field with a custom poll; env supplies ONLY the enable flag
     # (no AI_*_POLL_IN_SEC) -> the operator's Config cadence must survive, not snap to the default.
