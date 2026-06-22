@@ -198,6 +198,14 @@ class SkillRunner:
             for t in self.ai_traders:
                 if hasattr(t, "set_playbook_provider"):
                     t.set_playbook_provider(lambda name=t.name: ledger.latest_playbook(name))
+        # Inject external sentiment (Fear & Greed) into every AI brain when enabled. The provider is
+        # GLOBAL (one reading for the whole market), cache-aware, and degrades to None on any fetch
+        # failure — so it never blocks a consult. Off by default / on backtest ledgers without a cache.
+        if getattr(cfg, "fng_enabled", False) and hasattr(ledger, "get_signal"):
+            from homing_trade.signals.fng import get_fng
+            for t in self.ai_traders:
+                if hasattr(t, "set_fng_provider"):
+                    t.set_fng_provider(lambda: get_fng(ledger))
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0

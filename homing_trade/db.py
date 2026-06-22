@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -241,6 +241,21 @@ MIGRATIONS = {
         )""",
         "CREATE INDEX IF NOT EXISTS idx_cost_ledger_strategy ON cost_ledger(strategy, ts)",
     ],
+    # v11: a generic external-signal cache (Phase 6). One latest row per (source, key) — e.g.
+    # source='fng', key='latest' — carrying the parsed value (value_json) + fetched_at, so every
+    # external pull (Fear&Greed, funding, on-chain, ...) is cached, rate-limit-friendly, and
+    # replayable. Machine-written from the fetch (a mechanical fact), never model-authored ->
+    # audit-truth. `ts` is the upstream observation time; `fetched_at` is when we pulled it.
+    11: [
+        """CREATE TABLE IF NOT EXISTS signal_cache (
+            source TEXT NOT NULL,
+            key TEXT NOT NULL,
+            ts INTEGER,
+            value_json TEXT NOT NULL,
+            fetched_at INTEGER NOT NULL,
+            PRIMARY KEY (source, key)
+        )""",
+    ],
 }
 
 
@@ -263,7 +278,7 @@ MIGRATIONS = {
 # classified) and DISJOINT as the schema grows.
 AUDIT_TRUTH_TABLES = frozenset({
     "strategies", "wallets", "positions", "trades", "equity",
-    "candles", "state", "risk_events", "regimes", "trade_outcomes", "cost_ledger",
+    "candles", "state", "risk_events", "regimes", "trade_outcomes", "cost_ledger", "signal_cache",
 })
 MODEL_AUTHORED_TABLES = frozenset({
     "decision_log", "llm_responses", "reflections", "playbooks", "proposals",
@@ -514,6 +529,25 @@ class Database:
         return {r["strategy"]: {"calls": r["calls"], "prompt_tokens": r["pt"],
                                 "completion_tokens": r["ct"], "total_tokens": r["pt"] + r["ct"],
                                 "usd": r["usd"]} for r in rows}
+
+    def upsert_signal(self, source, key, ts, value, fetched_at) -> None:
+        """Cache the latest external-signal reading for (source, key) (Phase 6). `value` is JSON-
+        serializable; `ts` is the upstream observation time, `fetched_at` when we pulled it."""
+        self.conn.execute(
+            "INSERT INTO signal_cache(source, key, ts, value_json, fetched_at) VALUES(?,?,?,?,?)"
+            " ON CONFLICT(source, key) DO UPDATE SET ts=excluded.ts,"
+            " value_json=excluded.value_json, fetched_at=excluded.fetched_at",
+            (source, key, ts, json.dumps(value), fetched_at))
+        self.conn.commit()
+
+    def get_signal(self, source, key) -> dict | None:
+        """The cached reading for (source, key) -> {source, key, ts, value, fetched_at} or None."""
+        row = self.conn.execute(
+            "SELECT * FROM signal_cache WHERE source=? AND key=?", (source, key)).fetchone()
+        if not row:
+            return None
+        return {"source": row["source"], "key": row["key"], "ts": row["ts"],
+                "value": json.loads(row["value_json"]), "fetched_at": row["fetched_at"]}
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
