@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -195,6 +195,26 @@ MIGRATIONS = {
         "CREATE INDEX IF NOT EXISTS idx_reflections_strategy_ts ON reflections(strategy, ts)",
         "CREATE INDEX IF NOT EXISTS idx_playbooks_strategy ON playbooks(strategy, created_ts)",
     ],
+    # v8: the proposals approval-gate — the single chokepoint between an AI suggestion and an
+    # applied change. Every row starts 'pending'; a human (or web UI / #comms) flips it to
+    # 'approved'/'rejected'. NOTHING is applied here; this table only records the request and
+    # the decision. Protected fields (risk limits / kill-switch / secrets / live-arming) can
+    # never even be proposed — enforced in create_proposal, not just at apply time.
+    8: [
+        """CREATE TABLE IF NOT EXISTS proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy TEXT,
+            kind TEXT NOT NULL,                 -- 'param'|'prompt'|'playbook'|'strategy_toggle'
+            payload_json TEXT NOT NULL,
+            rationale TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',  -- 'pending'|'approved'|'rejected'
+            created_ts INTEGER NOT NULL,
+            decided_ts INTEGER,
+            decided_by TEXT,
+            source_reflection_id INTEGER
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status, created_ts)",
+    ],
 }
 
 
@@ -214,15 +234,72 @@ MIGRATIONS = {
 #
 # Enforcement: SelfQuery touches only read methods (asserted by test_selfquery), and
 # test_hierarchy_of_truth asserts this classification stays COMPLETE (every live table is
-# classified) and DISJOINT as the schema grows. reflections/playbooks are forward
-# declarations for the Phase-4 learn->correct loop (not created yet).
+# classified) and DISJOINT as the schema grows.
 AUDIT_TRUTH_TABLES = frozenset({
     "strategies", "wallets", "positions", "trades", "equity",
     "candles", "state", "risk_events", "regimes", "trade_outcomes",
 })
 MODEL_AUTHORED_TABLES = frozenset({
-    "decision_log", "llm_responses", "reflections", "playbooks",
+    "decision_log", "llm_responses", "reflections", "playbooks", "proposals",
 })
+
+# The proposal approval-gate. `proposals` rows are model-authored suggestions that a human
+# must approve before anything applies — and these zones can never even be PROPOSED, let alone
+# applied: hard risk limits, the kill-switch, leverage caps, per-trade risk sizing, execution
+# fidelity, the live-arming flags, alert routing, and anything secret.
+#
+# The exact set below is enumerated from the REAL config.Config fields (not from memory); the
+# family/secret SUBSTRINGS then provide fail-closed coverage so a NEW risk-/leverage-/live-/
+# secret-named field added to config later is protected by default. None of the legitimate
+# tunables (ema/rsi/macd/bollinger/donchian/rl_*/lookback/threshold/period…) contain these
+# substrings, so there is no over-block. test_proposals seeds a coverage check from config.
+PROPOSAL_KINDS = frozenset({"param", "prompt", "playbook", "strategy_toggle"})
+PROTECTED_PROPOSAL_FIELDS = frozenset({
+    # leverage caps + per-trade risk sizing (leverage_min defeats leverage_max via effective_leverage)
+    "leverage", "leverage_min", "leverage_max", "risk_pct", "stop_pct",
+    # daily caps / kill-switch / master switch
+    "max_trade_amount_per_day", "max_daily_loss", "trading_enabled",
+    # execution fidelity + volatility guard + committee gate (tampering distorts risk/PnL)
+    "fee", "slippage", "risk_vol_window", "risk_vol_threshold", "committee_threshold",
+    # live-arming
+    "live_enabled", "live_dry_run", "dry_run", "live",
+    # alert routing + secret/env names
+    "webhook_url", "discord_webhook_env", "telegram_token_env", "telegram_chat_id_env",
+    "coindcx_key_env", "coindcx_secret_env",
+})
+_PROTECTED_SUBSTRINGS = (
+    "secret", "token", "password", "webhook", "api_key", "apikey",     # secrets / keys
+    "leverage", "risk", "dry_run", "daily_loss", "margin",             # risk / leverage families
+    "live_", "trading_enabled", "_key_env", "chat_id_env",             # arming + secret-env names
+)  # NOTE: no bare "kill" — no real field uses it (kill-switch == max_daily_loss, in the exact
+   # set) and it would false-match "enabled_skills" (s-kill-s).
+
+
+def _is_protected(token: str) -> bool:
+    t = token.lower()
+    return t in PROTECTED_PROPOSAL_FIELDS or any(s in t for s in _PROTECTED_SUBSTRINGS)
+
+
+def _assert_no_protected_fields(payload, *, scan_values=False):
+    """Raise ValueError if a proposal payload references any protected field (at any depth).
+
+    Always scans dict KEYS. For `param` proposals (`scan_values=True`) it ALSO scans string
+    VALUES, so a field-as-value payload like {"field": "leverage_min", "value": 99} can't slip
+    a protected name past a key-only check. Value-scanning is NOT applied to prompt/playbook
+    kinds, whose values are free model prose that may legitimately mention 'risk'/'leverage'."""
+    def tokens(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield str(k)
+                yield from tokens(v)
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                yield from tokens(v)
+        elif scan_values and isinstance(obj, str):
+            yield obj
+    for tok in tokens(payload):
+        if _is_protected(tok):
+            raise ValueError(f"proposal may not touch protected field: {tok}")
 
 
 class Database:
@@ -698,6 +775,62 @@ class Database:
         self.conn.execute("UPDATE playbooks SET retired_ts=? WHERE version=?",
                           (retired_ts, version))
         self.conn.commit()
+
+    # --- Phase-4 proposals: the human-approval gate (nothing self-applies) ---------------
+    def create_proposal(self, strategy, kind, payload, rationale, created_ts, *,
+                        source_reflection_id=None) -> int:
+        """Record a pending proposal. Validates the kind and refuses any payload that touches a
+        protected field (risk limits / kill-switch / secrets / live-arming) — raises ValueError.
+        Does NOT apply anything; status starts 'pending' until a human decides."""
+        if kind not in PROPOSAL_KINDS:
+            raise ValueError(f"unknown proposal kind: {kind}")
+        # param payloads set config fields, so scan values too (catch field-as-value); other
+        # kinds carry free prose in values and are key-scanned only.
+        _assert_no_protected_fields(payload, scan_values=(kind == "param"))
+        cur = self.conn.execute(
+            """INSERT INTO proposals(strategy, kind, payload_json, rationale, status,
+                   created_ts, source_reflection_id)
+               VALUES(?,?,?,?, 'pending', ?, ?)""",
+            (strategy, kind, json.dumps(payload), rationale, created_ts, source_reflection_id))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def pending_proposals(self, strategy=None):
+        if strategy is not None:
+            rows = self.conn.execute(
+                "SELECT * FROM proposals WHERE status='pending' AND strategy=? "
+                "ORDER BY created_ts ASC, id ASC", (strategy,))
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM proposals WHERE status='pending' ORDER BY created_ts ASC, id ASC")
+        return [dict(r) for r in rows]
+
+    def recent_proposals(self, strategy=None, limit=100):
+        if strategy is not None:
+            rows = self.conn.execute(
+                "SELECT * FROM proposals WHERE strategy=? ORDER BY id DESC LIMIT ?",
+                (strategy, limit))
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM proposals ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows]
+
+    def get_proposal(self, proposal_id):
+        row = self.conn.execute("SELECT * FROM proposals WHERE id=?", (proposal_id,)).fetchone()
+        return dict(row) if row else None
+
+    def decide_proposal(self, proposal_id, status, decided_by, decided_ts) -> bool:
+        """Approve or reject a PENDING proposal. Only records the decision — applying the change
+        is a separate, explicit step. Returns True if a pending row was decided (idempotent: a
+        second decision on an already-decided proposal is a no-op)."""
+        if status not in ("approved", "rejected"):
+            raise ValueError(f"decision must be approved/rejected, got: {status}")
+        cur = self.conn.execute(
+            "UPDATE proposals SET status=?, decided_by=?, decided_ts=? "
+            "WHERE id=? AND status='pending'",
+            (status, decided_by, decided_ts, proposal_id))
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def table_names(self) -> set:
         """Names of all real tables in the live DB (excludes SQLite internals). Used by the

@@ -26,9 +26,11 @@ def test_ground_truth_tables_are_audit_truth():
         assert t in AUDIT_TRUTH_TABLES
 
 
-def test_only_these_four_may_carry_model_text():
-    # Exactly the four tables permitted model-authored free text (two land in Phase 4).
-    assert MODEL_AUTHORED_TABLES == {"decision_log", "llm_responses", "reflections", "playbooks"}
+def test_model_authored_set_is_exactly_these():
+    # Exactly the tables permitted model-authored free text. proposals joined in Phase 4
+    # (it carries the AI's rationale + proposed payload).
+    assert MODEL_AUTHORED_TABLES == {"decision_log", "llm_responses", "reflections",
+                                     "playbooks", "proposals"}
 
 
 def test_derived_observability_tables_are_audit_truth():

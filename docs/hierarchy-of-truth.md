@@ -54,8 +54,9 @@ treated as ground truth about what happened in the market or the account.
 |-----------------|-----------------------------------------------------------------|--------|
 | `decision_log`  | `reason` (the strategy/LLM's stated reason for an action)       | live |
 | `llm_responses` | `observation` / `prediction` / `rationale` / `raw`              | live |
-| `reflections`   | Per-trade & periodic lessons over `trade_outcomes`              | Phase 4 (forward-declared) |
-| `playbooks`     | Versioned, append-only rule sets proposed by reflection         | Phase 4 (forward-declared) |
+| `reflections`   | Per-trade & periodic lessons over `trade_outcomes`              | live |
+| `playbooks`     | Versioned, append-only rule sets proposed by reflection         | live |
+| `proposals`     | The AI's `rationale` + proposed `payload` (the approval gate)    | live |
 
 Even within these tables, mechanical columns stay mechanical: `decision_log.confidence`,
 `taken_action`, `rejection_rationale`, `regime`, `realized_vol` are written by code, not prose.

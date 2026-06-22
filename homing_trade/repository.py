@@ -149,5 +149,21 @@ class Repository(Ledger):
     def retire_playbook(self, version, retired_ts):
         return self.db.retire_playbook(version, retired_ts)
 
+    # --- Phase-4 proposals (the approval gate) ---
+    def create_proposal(self, *args, **kwargs):
+        return self.db.create_proposal(*args, **kwargs)
+
+    def pending_proposals(self, strategy=None):
+        return self.db.pending_proposals(strategy)
+
+    def recent_proposals(self, strategy=None, limit=100):
+        return self.db.recent_proposals(strategy, limit)
+
+    def get_proposal(self, proposal_id):
+        return self.db.get_proposal(proposal_id)
+
+    def decide_proposal(self, proposal_id, status, decided_by, decided_ts):
+        return self.db.decide_proposal(proposal_id, status, decided_by, decided_ts)
+
     def close(self):
         return self.db.close()
