@@ -174,5 +174,9 @@ class Repository(Ledger):
     def decide_proposal(self, proposal_id, status, decided_by, decided_ts):
         return self.db.decide_proposal(proposal_id, status, decided_by, decided_ts)
 
+    def apply_playbook_proposal(self, proposal_id, version, strategy, rules, applied_by, now_ms):
+        return self.db.apply_playbook_proposal(proposal_id, version, strategy, rules,
+                                               applied_by, now_ms)
+
     def close(self):
         return self.db.close()
