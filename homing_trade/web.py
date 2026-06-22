@@ -233,6 +233,9 @@ def build_state(cfg, controller):
                 "created_ts": p["created_ts"], "decided_by": p.get("decided_by"),
                 "applied_ts": p.get("applied_ts"), "applied_result": p.get("applied_result"),
                 "payload": payload})
+        # Continuous backtest results (Phase 7 #7): the latest walk-forward OOS + trusted
+        # (post-cutoff) metrics per strategy, so the dashboard shows honest out-of-sample evidence.
+        backtests = repo.latest_backtest_per_strategy()
         return {
             "status": controller.status(),
             "last_error": controller.last_error,
@@ -242,7 +245,7 @@ def build_state(cfg, controller):
             "strategies": strategies, "trades": trades, "decisions": decisions,
             "brain_log": brain_log,
             "regime_breakdown": regime_breakdown, "exit_breakdown": exit_breakdown,
-            "proposals": proposals, "signals": signals,
+            "proposals": proposals, "signals": signals, "backtests": backtests,
         }
     finally:
         repo.close()

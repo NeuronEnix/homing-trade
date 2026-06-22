@@ -85,6 +85,15 @@ class Config:
     # walk-forward data: an LLM strategy could lean on outcomes it memorized before its knowledge
     # cutoff. Default = Opus knowledge cutoff; "" disables the constraint.
     trust_cutoff_iso: str = "2026-01-01"
+    # Phase 7 #7 — continuous walk-forward backtest job (default OFF). When enabled it runs
+    # walk_forward over the enabled + candidate strategies on a slow cadence and records OOS +
+    # trusted (post-cutoff) results to SQLite, surfaced in the UI. Synchronous on its own cadence.
+    continuous_backtest_enabled: bool = False
+    continuous_backtest_poll_sec: int = 86400      # daily
+    continuous_backtest_days: int = 365            # history span pulled from stored candles
+    continuous_backtest_train: int = 500
+    continuous_backtest_test: int = 200
+    continuous_backtest_window: int = 200
     qtable_dir: str = "data"
     alert_mode: str = "console"          # "console" | "file" | "webhook" | "telegram" | "null"
     alert_log_path: str = "data/alerts.log"
