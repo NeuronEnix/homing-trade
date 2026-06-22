@@ -19,14 +19,15 @@ Two ways a provider is enabled, unified into one registry:
      A provider spins up as strategy `llm_<name_lower>`. If both a built-in's Config field AND its
      env flag are set, the env flag is the explicit signal and wins.
 
-A provider whose backend `LlmTrader` cannot drive (anything outside KNOWN_BACKENDS) is SKIPPED
-rather than mis-routed — real adapters (OpenAI/Mistral/Llama, degrade-to-HOLD) are Phase 5 #2,
-and the approved-name whitelist is Phase 5 #3. This module is the single place that maps
-config + env -> AI strategy instances, kept separate from the mechanical skills (engine) and the
-risk layer.
+A provider whose backend `LlmTrader` cannot drive (anything outside KNOWN_BACKENDS — the
+`llm_backends` adapter registry: cli/api/openai/mistral/llama) is SKIPPED rather than mis-routed;
+each adapter itself degrades to HOLD when its SDK/key is absent. The approved-name whitelist is
+Phase 5 #3. This module is the single place that maps config + env -> AI strategy instances, kept
+separate from the mechanical skills (engine) and the risk layer.
 """
 import re
 
+from homing_trade.llm_backends import BACKENDS
 from homing_trade.skills.llm_trader import LlmTrader
 
 # Built-in providers: NAME -> (backend, default_poll_sec). These are the registry/whitelist seed
@@ -36,10 +37,10 @@ BUILTIN_PROVIDERS = {
     "ANTHROPIC": ("api", 900),
 }
 
-# Backends LlmTrader can actually drive today. Unknown backends (openai/mistral/llama) are skipped
-# until their adapters land (Phase 5 #2), so an enabled-but-unsupported provider never mis-routes
-# to the Anthropic API path.
-KNOWN_BACKENDS = {"cli", "api"}
+# Backends LlmTrader can drive — the adapter registry (cli/api/openai/mistral/llama, Phase 5 #2).
+# A provider declaring any other backend is skipped at discovery so it never mis-routes; each
+# adapter itself degrades to HOLD when its SDK/key is absent (llm_backends never-crash contract).
+KNOWN_BACKENDS = set(BACKENDS)
 
 # Poll cadence for a discovered provider that declares no AI_<NAME>_POLL_IN_SEC and is not built-in.
 DEFAULT_POLL_SEC = 3600
