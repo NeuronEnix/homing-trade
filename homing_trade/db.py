@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -141,6 +141,19 @@ MIGRATIONS = {
         " pair TEXT NOT NULL, interval TEXT NOT NULL, time INTEGER NOT NULL,"
         " regime TEXT, adx REAL, ema_slope REAL, realized_vol REAL,"
         " PRIMARY KEY (pair, interval, time))",
+    ],
+    # v4: denormalized one-row-per-completed-trade table — the single row the reflection
+    # loop reads. Built from trades (open→close join). The enrichment columns
+    # (decision_id, regime_at_entry, mae, mfe, prediction_correct, exit_reason) are populated
+    # in follow-up slices; realized_at_ts carries the outcome embargo (no look-ahead).
+    4: [
+        "CREATE TABLE IF NOT EXISTS trade_outcomes ("
+        " position_id INTEGER PRIMARY KEY, strategy TEXT, side TEXT,"
+        " entry_price REAL, exit_price REAL, entry_ts INTEGER, exit_ts INTEGER, size REAL,"
+        " fees REAL, slippage REAL, realized_pnl REAL, pnl_pct REAL, holding_period_ms INTEGER,"
+        " exit_reason TEXT, regime_at_entry TEXT, decision_id TEXT,"
+        " mae REAL, mfe REAL, prediction_correct INTEGER, realized_at_ts INTEGER)",
+        "CREATE INDEX IF NOT EXISTS idx_trade_outcomes_strategy ON trade_outcomes(strategy)",
     ],
 }
 
@@ -456,6 +469,55 @@ class Database:
             "SELECT regime, adx, ema_slope, realized_vol, time FROM regimes "
             "WHERE pair=? AND interval=? ORDER BY time DESC LIMIT 1", (pair, interval)).fetchone()
         return dict(row) if row else None
+
+    def rebuild_trade_outcomes(self):
+        """Rebuild the denormalized trade_outcomes table from trades (idempotent).
+
+        One row per completed position (its OPEN paired with its final CLOSE). Positions
+        with no CLOSE yet are skipped. realized_pnl/fees/slippage sum the position's trades.
+        """
+        rows = self.conn.execute(
+            "SELECT position_id, strategy, side, action, price, size, fee, pnl, ts, slippage "
+            "FROM trades WHERE position_id IS NOT NULL ORDER BY position_id, id ASC").fetchall()
+        by_pos = {}
+        for r in rows:
+            by_pos.setdefault(r["position_id"], []).append(r)
+        self.conn.execute("DELETE FROM trade_outcomes")
+        for pos_id, trs in by_pos.items():
+            opens = [t for t in trs if t["action"] == "OPEN"]
+            closes = [t for t in trs if t["action"] == "CLOSE"]
+            if not opens or not closes:
+                continue  # not a completed round trip
+            o, c = opens[0], closes[-1]
+            realized = sum(t["pnl"] for t in trs)
+            fees = sum((t["fee"] or 0.0) for t in trs)
+            slip = sum((t["slippage"] or 0.0) for t in trs)
+            notional = o["price"] * o["size"]
+            pnl_pct = (realized / notional * 100) if notional else 0.0
+            self.conn.execute(
+                """INSERT INTO trade_outcomes(position_id, strategy, side, entry_price, exit_price,
+                       entry_ts, exit_ts, size, fees, slippage, realized_pnl, pnl_pct,
+                       holding_period_ms, realized_at_ts)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (pos_id, o["strategy"], o["side"], o["price"], c["price"], o["ts"], c["ts"],
+                 o["size"], fees, slip, realized, pnl_pct, c["ts"] - o["ts"], c["ts"]))
+        self.conn.commit()
+
+    def trade_outcomes(self, strategy=None, as_of=None):
+        """Read trade_outcomes. `as_of` enforces the look-ahead embargo: only rows whose
+        realized_at_ts <= as_of are returned (so reflection can't peek at the future)."""
+        q = "SELECT * FROM trade_outcomes"
+        cond, params = [], []
+        if strategy is not None:
+            cond.append("strategy=?")
+            params.append(strategy)
+        if as_of is not None:
+            cond.append("realized_at_ts <= ?")
+            params.append(as_of)
+        if cond:
+            q += " WHERE " + " AND ".join(cond)
+        q += " ORDER BY exit_ts ASC"
+        return [dict(r) for r in self.conn.execute(q, params)]
 
     def close(self) -> None:
         self.conn.close()

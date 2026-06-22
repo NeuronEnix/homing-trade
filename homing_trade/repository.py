@@ -124,5 +124,11 @@ class Repository(Ledger):
     def latest_regime(self, pair, interval):
         return self.db.latest_regime(pair, interval)
 
+    def rebuild_trade_outcomes(self):
+        return self.db.rebuild_trade_outcomes()
+
+    def trade_outcomes(self, strategy=None, as_of=None) -> list:
+        return self.db.trade_outcomes(strategy, as_of)
+
     def close(self):
         return self.db.close()
