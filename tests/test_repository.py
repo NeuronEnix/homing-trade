@@ -67,3 +67,21 @@ def test_candle_read_delegations(tmp_path):
     assert repo.get_candle_bounds("B-BTC_USDT", "15m") == (60000, 120000)
     got = repo.get_candles_range("B-BTC_USDT", "15m", 0, 200000)
     assert [c.time for c in got] == [60000, 120000]
+
+
+def test_dashboard_reads_and_reset(tmp_path):
+    repo = make(tmp_path)
+    repo.ensure_strategy("grid", 5000.0)
+    repo.ensure_strategy("llm_claude_code", 5000.0)
+    repo.record_trade("grid", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    repo.record_equity("grid", 5005.0, 1000)
+    repo.record_equity("grid", 5010.0, 2000)
+    repo.log_decision("grid", 1500, 1000, "HOLD", 0.0, "no signal", {"rsi": 55})
+    assert set(repo.strategy_names()) == {"grid", "llm_claude_code"}
+    assert repo.latest_equity("grid") == 5010.0           # most recent snapshot
+    assert repo.latest_equity("llm_claude_code") is None  # none recorded
+    assert [t["action"] for t in repo.recent_trades(10)] == ["OPEN"]
+    assert [d["reason"] for d in repo.recent_decisions(10)] == ["no signal"]
+    repo.reset_paper_ledger()
+    assert repo.strategy_names() == []
+    assert repo.recent_trades(10) == [] and repo.recent_decisions(10) == []

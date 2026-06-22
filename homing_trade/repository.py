@@ -89,5 +89,24 @@ class Repository(Ledger):
     def get_candle_bounds(self, pair, interval):
         return self.db.get_candle_bounds(pair, interval)
 
+    # --- dashboard reads + admin (used by web.py) ---
+    def strategy_names(self) -> list:
+        return self.db.strategy_names()
+
+    def latest_equity(self, strategy):
+        return self.db.latest_equity(strategy)
+
+    def recent_trades(self, limit) -> list:
+        return self.db.recent_trades(limit)
+
+    def recent_decisions(self, limit) -> list:
+        return self.db.recent_decisions(limit)
+
+    def recent_llm_responses(self, strategy=None, limit=20):
+        return self.db.recent_llm_responses(strategy, limit)
+
+    def reset_paper_ledger(self) -> None:
+        return self.db.reset_paper_ledger()
+
     def close(self):
         return self.db.close()

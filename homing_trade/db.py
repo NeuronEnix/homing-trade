@@ -336,5 +336,34 @@ class Database:
         row = self.conn.execute("SELECT MAX(id) AS m FROM trades").fetchone()
         return int(row["m"]) if row and row["m"] is not None else 0
 
+    def strategy_names(self):
+        return [r["name"] for r in self.conn.execute(
+            "SELECT name FROM strategies ORDER BY name")]
+
+    def latest_equity(self, strategy):
+        row = self.conn.execute(
+            "SELECT equity FROM equity WHERE strategy=? ORDER BY ts DESC LIMIT 1",
+            (strategy,)).fetchone()
+        return float(row["equity"]) if row else None
+
+    def recent_trades(self, limit):
+        return [dict(r) for r in self.conn.execute(
+            "SELECT strategy, side, action, price, size, pnl, ts FROM trades ORDER BY id DESC LIMIT ?",
+            (limit,))]
+
+    def recent_decisions(self, limit):
+        return [dict(r) for r in self.conn.execute(
+            "SELECT strategy, action, confidence, reason, ts FROM decision_log ORDER BY id DESC LIMIT ?",
+            (limit,))]
+
+    def reset_paper_ledger(self):
+        """Wipe the paper ledger (wallets/positions/trades/equity/decisions/llm + strategies)
+        and the last-candle cursor. Cached candles are kept."""
+        for t in ("trades", "positions", "equity", "decision_log",
+                  "llm_responses", "wallets", "strategies"):
+            self.conn.execute(f"DELETE FROM {t}")
+        self.conn.execute("DELETE FROM state WHERE key='last_candle_time'")
+        self.conn.commit()
+
     def close(self) -> None:
         self.conn.close()

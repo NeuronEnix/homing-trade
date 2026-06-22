@@ -15,7 +15,7 @@ import time
 import webbrowser
 
 from homing_trade.config import CONFIG, from_env
-from homing_trade.db import Database
+from homing_trade.repository import Repository
 from homing_trade.engine import run as engine_run
 from homing_trade.feed import get_prices
 from homing_trade.notify import build_notifier
@@ -75,29 +75,24 @@ class Controller:
     def reset(self):
         """Stop and wipe the paper ledger (keeps cached candles)."""
         self.stop()
-        db = Database(self.cfg.db_path)
+        repo = Repository.open(self.cfg.db_path)
         try:
-            for t in ("trades", "positions", "equity", "decision_log",
-                      "llm_responses", "wallets", "strategies"):
-                db.conn.execute(f"DELETE FROM {t}")
-            db.conn.execute("DELETE FROM state WHERE key='last_candle_time'")
-            db.conn.commit()
+            repo.reset_paper_ledger()
         finally:
-            db.close()
+            repo.close()
 
 
 def build_state(cfg, controller):
     """Snapshot of everything the UI shows (read-only)."""
-    db = Database(cfg.db_path)
+    repo = Repository.open(cfg.db_path)
     try:
-        names = [r["name"] for r in db.conn.execute("SELECT name FROM strategies ORDER BY name")]
+        names = repo.strategy_names()
         strategies = []
         for n in names:
-            bal = db.get_balance(n)
-            pos = db.get_open_position(n)
-            eq_row = db.conn.execute(
-                "SELECT equity FROM equity WHERE strategy=? ORDER BY ts DESC LIMIT 1", (n,)).fetchone()
-            equity = eq_row["equity"] if eq_row else bal
+            bal = repo.get_balance(n)
+            pos = repo.get_open_position(n)
+            eq = repo.latest_equity(n)
+            equity = eq if eq is not None else bal
             position = None
             if pos is not None:
                 position = {"side": pos.side, "size": round(pos.size, 6),
@@ -109,17 +104,15 @@ def build_state(cfg, controller):
                     "pnl_pct": round((equity - cfg.starting_balance) / cfg.starting_balance * 100, 2),
                     "position": position}
             if n.startswith("llm_"):
-                lr = db.recent_llm_responses(n, 1)
+                lr = repo.recent_llm_responses(n, 1)
                 if lr:
                     r = lr[0]
                     item["ai"] = {"action": r["action"], "confidence": r["confidence"],
                                   "observation": r["observation"], "prediction": r["prediction"],
                                   "rationale": r["rationale"], "error": r["error"], "ts": r["ts"]}
             strategies.append(item)
-        trades = [dict(r) for r in db.conn.execute(
-            "SELECT strategy, side, action, price, size, pnl, ts FROM trades ORDER BY id DESC LIMIT 25")]
-        decisions = [dict(r) for r in db.conn.execute(
-            "SELECT strategy, action, confidence, reason, ts FROM decision_log ORDER BY id DESC LIMIT 40")]
+        trades = repo.recent_trades(25)
+        decisions = repo.recent_decisions(40)
         return {
             "status": controller.status(),
             "last_error": controller.last_error,
@@ -129,7 +122,7 @@ def build_state(cfg, controller):
             "strategies": strategies, "trades": trades, "decisions": decisions,
         }
     finally:
-        db.close()
+        repo.close()
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
