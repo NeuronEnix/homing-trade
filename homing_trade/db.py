@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -224,6 +224,23 @@ MIGRATIONS = {
         "ALTER TABLE proposals ADD COLUMN applied_by TEXT",
         "ALTER TABLE proposals ADD COLUMN applied_result TEXT",
     ],
+    # v10: per-provider cost accounting (Phase 5 #4). One row per AI consult: the token usage and
+    # (best-effort) USD cost, attributed to the strategy/model/backend. Machine-written from the
+    # provider response — a mechanical fact, never model-authored, so it is audit-truth. usd/tokens
+    # are nullable (a provider may not report them; local llama has no price).
+    10: [
+        """CREATE TABLE IF NOT EXISTS cost_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            model TEXT,
+            backend TEXT,
+            prompt_tokens INTEGER,
+            completion_tokens INTEGER,
+            usd REAL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_cost_ledger_strategy ON cost_ledger(strategy, ts)",
+    ],
 }
 
 
@@ -246,7 +263,7 @@ MIGRATIONS = {
 # classified) and DISJOINT as the schema grows.
 AUDIT_TRUTH_TABLES = frozenset({
     "strategies", "wallets", "positions", "trades", "equity",
-    "candles", "state", "risk_events", "regimes", "trade_outcomes",
+    "candles", "state", "risk_events", "regimes", "trade_outcomes", "cost_ledger",
 })
 MODEL_AUTHORED_TABLES = frozenset({
     "decision_log", "llm_responses", "reflections", "playbooks", "proposals",
@@ -474,6 +491,29 @@ class Database:
             "SELECT rationale FROM llm_responses WHERE strategy=? AND error IS NULL "
             "ORDER BY id DESC LIMIT 1", (strategy,)).fetchone()
         return (row["rationale"] or "") if row else ""
+
+    def record_cost(self, strategy, ts, model, backend, prompt_tokens, completion_tokens, usd) -> None:
+        """Append one AI-consult cost row (Phase 5 #4). Machine-written audit-truth."""
+        self.conn.execute(
+            "INSERT INTO cost_ledger(strategy, ts, model, backend, prompt_tokens,"
+            " completion_tokens, usd) VALUES(?,?,?,?,?,?,?)",
+            (strategy, ts, model, backend, prompt_tokens, completion_tokens, usd))
+        self.conn.commit()
+
+    def cost_summary(self, strategy=None) -> dict:
+        """Per-strategy cost rollup: {strategy: {calls, prompt_tokens, completion_tokens,
+        total_tokens, usd}} over all cost_ledger rows (optionally one strategy). NULL tokens/usd
+        sum as 0; `calls` counts consults."""
+        q = ("SELECT strategy, COUNT(*) AS calls,"
+             " COALESCE(SUM(prompt_tokens),0) AS pt, COALESCE(SUM(completion_tokens),0) AS ct,"
+             " COALESCE(SUM(usd),0.0) AS usd FROM cost_ledger ")
+        if strategy is not None:
+            rows = self.conn.execute(q + "WHERE strategy=? GROUP BY strategy", (strategy,)).fetchall()
+        else:
+            rows = self.conn.execute(q + "GROUP BY strategy").fetchall()
+        return {r["strategy"]: {"calls": r["calls"], "prompt_tokens": r["pt"],
+                                "completion_tokens": r["ct"], "total_tokens": r["pt"] + r["ct"],
+                                "usd": r["usd"]} for r in rows}
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()

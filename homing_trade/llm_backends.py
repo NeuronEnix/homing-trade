@@ -1,6 +1,8 @@
 """LLM backend adapters — a common interface so ANY provider can drive an `LlmTrader` brain.
 
-Each adapter is a callable `(BackendRequest) -> (decision_dict, raw_text)`. It MAY raise (missing
+Each adapter is a callable `(BackendRequest) -> (decision_dict, raw_text, usage_dict)`, where
+usage_dict is {prompt_tokens, completion_tokens, usd} for per-provider cost accounting (any field
+may be None — best-effort). It MAY raise (missing
 SDK, missing key, unreachable server, network error, malformed JSON); the caller
 (`LlmTrader.on_candle`) catches every exception and degrades to HOLD, so a backend can never crash
 the trading loop. Provider SDKs are imported LAZILY inside each adapter, so an absent library costs
@@ -31,6 +33,44 @@ def _extract_json(text):
     return json.loads(text[s:e + 1])
 
 
+# Best-effort list prices (USD per 1M tokens) as (input, output), keyed by a model-name SUBSTRING.
+# Matched longest-key-first so e.g. "gpt-4o-mini" wins over "gpt-4o" over "gpt-4". Operator-editable;
+# an unknown model (or local llama) yields usd=None and only TOKENS are recorded — never guessed.
+# This is for rough cost observability, not billing reconciliation; the Claude CLI reports its own
+# authoritative total_cost_usd which we prefer when present.
+MODEL_PRICES = {
+    "opus": (15.0, 75.0),
+    "sonnet": (3.0, 15.0),
+    "haiku": (0.80, 4.0),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.0),
+    "gpt-4": (30.0, 60.0),
+    "mistral-large": (2.0, 6.0),
+    "mistral": (1.0, 3.0),
+}
+
+
+def estimate_usd(model, prompt_tokens, completion_tokens):
+    """Rough USD cost from token counts + MODEL_PRICES; None when the model is unknown or tokens
+    are missing (callers then record tokens with usd unset rather than a fabricated figure)."""
+    if not model or prompt_tokens is None or completion_tokens is None:
+        return None
+    m = model.lower()
+    for key in sorted(MODEL_PRICES, key=len, reverse=True):
+        if key in m:
+            pin, pout = MODEL_PRICES[key]
+            return round(prompt_tokens / 1e6 * pin + completion_tokens / 1e6 * pout, 6)
+    return None
+
+
+def _usage(model, prompt_tokens, completion_tokens, usd=None):
+    """Build the usage dict an adapter returns. usd falls back to a MODEL_PRICES estimate when the
+    provider didn't report an authoritative figure. Any field may be None (best-effort)."""
+    if usd is None:
+        usd = estimate_usd(model, prompt_tokens, completion_tokens)
+    return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "usd": usd}
+
+
 @dataclass(frozen=True)
 class BackendRequest:
     """Everything an adapter needs to make one decision. `client` lets a caller inject an SDK
@@ -49,6 +89,16 @@ def _from_choices(resp):
     return resp.choices[0].message.content
 
 
+def _anthropic_usage(resp, model):
+    u = getattr(resp, "usage", None)
+    return _usage(model, getattr(u, "input_tokens", None), getattr(u, "output_tokens", None))
+
+
+def _choices_usage(resp, model):
+    u = getattr(resp, "usage", None)
+    return _usage(model, getattr(u, "prompt_tokens", None), getattr(u, "completion_tokens", None))
+
+
 def _anthropic(req: BackendRequest):
     client = req.client
     if client is None:
@@ -60,11 +110,12 @@ def _anthropic(req: BackendRequest):
         kw["output_config"] = {"format": {"type": "json_schema", "schema": req.schema}}
     resp = client.messages.create(**kw)
     text = next(b.text for b in resp.content if getattr(b, "type", None) == "text")
-    return _extract_json(text), text
+    return _extract_json(text), text, _anthropic_usage(resp, req.model)
 
 
 def _cli(req: BackendRequest):
-    """Shell out to the local `claude` CLI (headless). Heavier per call but no extra billing."""
+    """Shell out to the local `claude` CLI (headless). Heavier per call but no extra billing — the
+    envelope reports its own authoritative total_cost_usd + token usage, which we record verbatim."""
     prompt = f"{req.system}\n\n{req.prompt}\n\nRespond with ONLY the JSON object, no prose."
     cmd = ["claude", "-p", prompt, "--output-format", "json"]
     if req.model:
@@ -75,7 +126,10 @@ def _cli(req: BackendRequest):
     env = json.loads(proc.stdout)
     if env.get("is_error"):
         raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:300]}")
-    return _extract_json(str(env.get("result", ""))), proc.stdout
+    u = env.get("usage") or {}
+    usage = _usage(req.model, u.get("input_tokens"), u.get("output_tokens"),
+                   usd=env.get("total_cost_usd"))
+    return _extract_json(str(env.get("result", ""))), proc.stdout, usage
 
 
 def _openai(req: BackendRequest):
@@ -90,7 +144,7 @@ def _openai(req: BackendRequest):
                   {"role": "user", "content": req.prompt}],
     )
     text = _from_choices(resp)
-    return _extract_json(text), text
+    return _extract_json(text), text, _choices_usage(resp, req.model)
 
 
 def _mistral(req: BackendRequest):
@@ -105,7 +159,7 @@ def _mistral(req: BackendRequest):
                   {"role": "user", "content": req.prompt}],
     )
     text = _from_choices(resp)
-    return _extract_json(text), text
+    return _extract_json(text), text, _choices_usage(resp, req.model)
 
 
 def _llama(req: BackendRequest):
@@ -123,7 +177,7 @@ def _llama(req: BackendRequest):
                   {"role": "user", "content": req.prompt}],
     )
     text = _from_choices(resp)
-    return _extract_json(text), text
+    return _extract_json(text), text, _choices_usage(resp, req.model)
 
 
 # The registry: backend name -> adapter. ai_traders uses set(BACKENDS) as its supported-backend set;
@@ -138,8 +192,9 @@ BACKENDS = {
 
 
 def decide(backend: str, req: BackendRequest):
-    """Dispatch one decision to the named backend. Raises ValueError for an unknown backend; any
-    provider/SDK/network error propagates (the caller degrades to HOLD)."""
+    """Dispatch one decision to the named backend. Returns (decision_dict, raw_text, usage_dict)
+    where usage_dict is {prompt_tokens, completion_tokens, usd} (any field may be None). Raises
+    ValueError for an unknown backend; any provider/SDK/network error propagates (caller -> HOLD)."""
     try:
         adapter = BACKENDS[backend]
     except KeyError:

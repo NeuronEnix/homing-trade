@@ -104,6 +104,14 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
                                    requested_charts=m.get("requested_charts"),
                                    prompt_version=m.get("prompt_version"),
                                    prompt_hash=m.get("prompt_hash"))
+        # 2b'. per-provider cost accounting (Phase 5 #4): one cost_ledger row per real consult that
+        #      reported usage. Skip HOLD-waiting (no raw) and error paths (no usage).
+        if signal.raw and not signal.error:
+            u = m.get("usage") or {}
+            if any(u.get(k) is not None for k in ("prompt_tokens", "completion_tokens", "usd")):
+                db.record_cost(skill.name, now_ms, getattr(skill, "model", ""),
+                               getattr(skill, "backend", ""), u.get("prompt_tokens"),
+                               u.get("completion_tokens"), u.get("usd"))
         # 2c. alert on an AI error (deduped so a persistent failure doesn't spam Discord)
         if signal.error and notifier is not None:
             if getattr(skill, "_last_alerted_error", None) != signal.error:

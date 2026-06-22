@@ -169,8 +169,9 @@ class LlmTrader(Strategy):
             return (None, [])
 
     def _decide(self, user):
-        """Make one decision via the configured backend adapter. Returns (decision_dict, raw_text);
-        raises on any provider/SDK/network error (on_candle catches -> HOLD)."""
+        """Make one decision via the configured backend adapter. Returns
+        (decision_dict, raw_text, usage_dict); raises on any provider/SDK/network error
+        (on_candle catches -> HOLD)."""
         req = llm_backends.BackendRequest(
             prompt=user, system=_SYSTEM, model=self.model, max_tokens=self.max_tokens,
             schema=_SCHEMA, client=self._client, cli_timeout=self.cli_timeout)
@@ -251,7 +252,7 @@ class LlmTrader(Strategy):
         meta_prov = {"prompt_version": prompt_version, "playbook_version": pb_version,
                      "prompt_hash": prompt_hash}
         try:
-            data, raw = self._decide(user)
+            data, raw, usage = self._decide(user)
             self._last_decision_ts = now
             action = str(data["action"]).upper()
             # guard the mapping so the engine never gets an impossible action
@@ -287,7 +288,7 @@ class LlmTrader(Strategy):
                 raw=raw,
                 meta={"observation": obs, "prediction": pred, "rationale": rat,
                       "next_check_in_sec": self._next_interval_sec,
-                      "requested_charts": self._requested, **meta_prov},
+                      "requested_charts": self._requested, "usage": usage, **meta_prov},
             )
         except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD + error alert
             # Carry the provenance even on failure, so a failing consult's error row is still

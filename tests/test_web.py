@@ -108,6 +108,25 @@ def test_build_state_shape(tmp_path):
     assert ai["is_ai"] and ai["ai"]["observation"] == "saw chop"
 
 
+def test_build_state_surfaces_per_ai_cost(tmp_path):
+    # Phase 5 #4: the leaderboard item for an AI carries its tokens + $ from the cost_ledger.
+    cfg = Config(db_path=str(tmp_path / "cost.db"))
+    db = Database(cfg.db_path)
+    db.ensure_strategy("llm_anthropic", 5000.0)
+    db.record_cost("llm_anthropic", 1000, "claude-opus-4-8", "api", 100, 20, 0.003)
+    db.record_cost("llm_anthropic", 2000, "claude-opus-4-8", "api", 50, 10, 0.0015)
+    db.close()
+
+    class _Ctrl:
+        last_error = None
+        disabled = set()
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    ai = next(s for s in st["strategies"] if s["name"] == "llm_anthropic")
+    assert ai["cost"]["calls"] == 2 and ai["cost"]["total_tokens"] == 180
+    assert ai["cost"]["usd"] == 0.0045
+
+
 def test_build_state_leaderboard_metrics(tmp_path):
     cfg = Config(db_path=str(tmp_path / "lb.db"))
     db = Database(cfg.db_path)
