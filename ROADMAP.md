@@ -94,7 +94,7 @@ Progress: 6/6 _(**Phase 5 COMPLETE.** env-discovered provider registry (#1, PR #
 ## Phase 6 — External research ingestion
 Goal: news/sentiment/derivatives/on-chain signals into the AI context, and an internet scan that FILES new algorithms as candidate strategies (never auto-trading).
 
-- [ ] `signals/fng.py`: Alternative.me Fear & Greed (free, no key) → cached table, injected into `llm_trader` context. Wire first.
+- [x] `signals/fng.py`: Alternative.me Fear & Greed (free, no key) → cached table, injected into `llm_trader` context. Wire first. _(fetch_fng (degrade to None on any error) + cache-aware get_fng (serve-fresh / refetch-stale / fallback-to-stale-or-None); injectable fetcher (offline tests). Generic schema-v11 signal_cache(source,key,ts,value_json,fetched_at) — AUDIT-TRUTH, reused by the rest of Phase 6. LlmTrader.fng_provider (wired by SkillRunner when fng_enabled + ledger has a cache) injects ctx["fear_greed"]; _SYSTEM frames it as a contextual gauge (never a standalone trigger); PROMPT_VERSION mtf-v1→mtf-v2. Default ON (keyless); backtests (MemoryLedger) never wire it → no network in tests. v10→v11 verified on a real DB copy. test_signals_fng 13 green; suite 469. Review: SHIP. Cold-cache synchronous fetch noted as #6 hardening)_
 - [ ] `signals/derivs.py`: Binance (then OKX/Bybit) public funding-rate + open-interest; aggregate cross-venue funding skew. No key needed.
 - [ ] `signals/coindcx.py`: CoinDCX public futures funding/mark/orderbook for the actual traded instrument (source of truth).
 - [ ] `signals/price_ref.py`: CoinGecko Demo reference price/market context to sanity-check CoinDCX (needs Demo key).
@@ -103,7 +103,7 @@ Goal: news/sentiment/derivatives/on-chain signals into the AI context, and an in
 - [ ] Candidate-strategy intake: an internet/research scan that writes new algorithm ideas as `proposals(kind='strategy_toggle')` rows for human approval — never auto-enabled.
 - [ ] Tests: `test_signals_*` with injected fetchers (offline, deterministic).
 
-Progress: 0/8
+Progress: 1/8 _(#1 Fear & Greed ingestion (PR #56) landed: signals/fng.py + the generic signal_cache (v11) + AI-context injection, all offline-tested. Next: #2 signals/derivs.py — Binance public funding-rate + open-interest (no key), cross-venue funding skew)_
 
 ---
 
