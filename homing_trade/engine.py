@@ -215,6 +215,15 @@ class SkillRunner:
                     t.add_context_provider(
                         "derivatives",
                         lambda p=getattr(t, "pair", cfg.pair_candles): get_derivs(ledger, binance_symbol(p)))
+        # CoinDCX microstructure — the ACTUAL traded instrument (source of truth), per-trader by its
+        # own pair (p=t.pair bound per-iteration). Cache-aware, degrade-safe.
+        if getattr(cfg, "coindcx_signal_enabled", False) and hasattr(ledger, "get_signal"):
+            from homing_trade.signals.coindcx import get_coindcx
+            for t in self.ai_traders:
+                if hasattr(t, "add_context_provider"):
+                    t.add_context_provider(
+                        "coindcx",
+                        lambda p=getattr(t, "pair", cfg.pair_candles): get_coindcx(ledger, p))
         self._ai_names = {t.name for t in self.ai_traders}
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
