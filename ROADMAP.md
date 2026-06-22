@@ -127,10 +127,10 @@ Goal: the board, this ROADMAP, and the PRs always agree; PRs are self-explanator
 
 - [ ] Mirror these phases onto a GitHub Project board (NeuronEnix/homing-trade); one card per task.
 - [ ] Keep `Progress: x/N` lines accurate on every merge; CI check fails if ROADMAP boxes and board drift (optional later).
-- [ ] PR template: what/why, what's tested, screenshots of UI changes, and an explicit "does NOT touch risk limits / kill-switch / secrets / live-arming" line.
-- [ ] CI: run the full test suite on every PR; block merge on red.
+- [x] PR template: what/why, what's tested, screenshots of UI changes, and an explicit "does NOT touch risk limits / kill-switch / secrets / live-arming" line. _(PR #72: .github/PULL_REQUEST_TEMPLATE.md — what/why (+ ROADMAP box), what's tested (CI must be green), UI screenshots, and an explicit Safety checklist (risk limits / kill-switch / leverage / sizing / secrets / .env / data / live-arming all confirmed untouched; self-modification stays human-gated))_
+- [x] CI: run the full test suite on every PR; block merge on red. _(PR #72: .github/workflows/ci.yml runs `python -m pytest -q` on every pull_request + push to main (Python 3.12, pip cache, install from requirements.txt; concurrency cancels superseded PR runs). PROVEN: it ran on its own PR and passed in 18s (651 green). Verified beforehand in a clean venv (only requirements.txt, no network). To actually BLOCK merge on red, mark the `tests` check Required in branch protection — documented in the workflow header (can't be set from the file). pytest capped <10 so a future major can't surprise CI. Adversarial review: full-suite/failure-propagation/action-versions/cache/concurrency/permissions all confirmed)_
 
-Progress: 0/4
+Progress: 2/4 _(#3 PR template + #4 CI on every PR landed (PR #72, the tests check passed on its own PR). Remaining: #1 mirror phases onto a GitHub Project board (needs the `project` token scope — external setup), #2 keep Progress lines accurate + optional CI drift check)_
 
 ---
 
