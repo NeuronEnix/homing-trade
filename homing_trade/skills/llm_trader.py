@@ -23,7 +23,7 @@ DEFAULT_TIMEFRAMES = ("15m", "1h", "4h")   # bird's-eye context; AI drills down 
 # Identity of THIS system prompt. Bump on any change to _SYSTEM/_SCHEMA so a decision is
 # attributable to the exact prompt that produced it. When an approved playbook is injected, the
 # effective prompt_version becomes f"{PROMPT_VERSION}+{playbook_version}".
-PROMPT_VERSION = "mtf-v5"
+PROMPT_VERSION = "mtf-v6"
 
 _SCHEMA = {
     "type": "object",
@@ -85,6 +85,10 @@ _SYSTEM = (
     "change per asset), use it only to SANITY-CHECK the venue: a large gap between this reference "
     "and the order-book mid/mark suggests stale or illiquid venue data — a reason for CAUTION (size "
     "down / wait), not a trade in itself.\n\n"
+    "If the data includes a 'news' field (recent crypto headlines), treat it as macro/event "
+    "CONTEXT — be aware of a major catalyst (regulatory action, hack, ETF/listing, macro print) "
+    "that could move price or spike volatility, and factor it into sizing/caution. Headlines are "
+    "noisy and unverified: never trade a headline alone; the multi-timeframe price action leads.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
     "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
