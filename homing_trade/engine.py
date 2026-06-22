@@ -280,6 +280,12 @@ class SkillRunner:
             poll_sec=getattr(cfg, "research_poll_sec", 86400),
             max_candidates=getattr(cfg, "research_max_candidates", 3),
             model=(getattr(cfg, "research_model", "") or cfg.llm_model or "research"))
+        # Continuous walk-forward backtest job (Phase 7 #7). Gated default-OFF; self-paced (daily).
+        # When enabled it records OOS + trusted (post-cutoff) results to SQLite for the dashboard and
+        # for the candidates' promotion track record. Pulls only stored candles (no network).
+        # Lazy import: backtest_job -> walkforward -> backtest -> engine would otherwise cycle.
+        from homing_trade.backtest_job import BacktestRunner
+        self.backtest_job = BacktestRunner(ledger, cfg)
 
     def run_tick(self, candles, *, is_paused=None, commands=None, is_disabled=None):
         candle = candles[-1]
@@ -306,6 +312,8 @@ class SkillRunner:
         # Candidate-strategy research on its own (daily) cadence — no-op unless research_enabled.
         # Self-gated + isolated; files only human-gated strategy_toggle proposals, never enables.
         self.research.run(sorted(s.name for s in self.skills))
+        # Continuous backtest job on its own (daily) cadence — no-op unless continuous_backtest_enabled.
+        self.backtest_job.run()
 
     def _emit_trade_alerts(self):
         if self.notifier is None:

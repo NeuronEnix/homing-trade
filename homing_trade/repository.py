@@ -216,5 +216,15 @@ class Repository(Ledger):
     def experiment_search_budget(self, start_ts, end_ts):
         return self.db.experiment_search_budget(start_ts, end_ts)
 
+    # --- Phase-7 #7 continuous backtest results ---
+    def record_backtest_result(self, *args, **kwargs):
+        return self.db.record_backtest_result(*args, **kwargs)
+
+    def recent_backtest_results(self, limit=50, strategy=None):
+        return self.db.recent_backtest_results(limit, strategy)
+
+    def latest_backtest_per_strategy(self):
+        return self.db.latest_backtest_per_strategy()
+
     def close(self):
         return self.db.close()

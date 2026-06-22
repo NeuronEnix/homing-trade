@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -280,6 +280,22 @@ MIGRATIONS = {
         )""",
         "CREATE INDEX IF NOT EXISTS idx_experiments_start ON experiments(start_ts)",
     ],
+    # v13: continuous walk-forward backtest results (Phase 7 #7). One row per strategy per run of the
+    # continuous backtest job, carrying the mechanically-computed OOS aggregate AND the trusted
+    # (post-cutoff, profit-mirage-guarded) subset. All metrics are machine-computed -> audit-truth.
+    13: [
+        """CREATE TABLE IF NOT EXISTS backtest_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            strategy TEXT NOT NULL,
+            pair TEXT, interval TEXT,
+            train INTEGER, test INTEGER, window INTEGER, cutoff_ms INTEGER,
+            folds INTEGER,
+            oos_return_pct REAL, oos_sharpe REAL, oos_hit_rate REAL, oos_max_dd REAL, oos_trades INTEGER,
+            trusted_folds INTEGER, trusted_return_pct REAL, trusted_sharpe REAL, trusted_hit_rate REAL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_backtest_results_strategy_ts ON backtest_results(strategy, ts)",
+    ],
 }
 
 
@@ -303,7 +319,7 @@ MIGRATIONS = {
 AUDIT_TRUTH_TABLES = frozenset({
     "strategies", "wallets", "positions", "trades", "equity",
     "candles", "state", "risk_events", "regimes", "trade_outcomes", "cost_ledger", "signal_cache",
-    "experiments",
+    "experiments", "backtest_results",
 })
 MODEL_AUTHORED_TABLES = frozenset({
     "decision_log", "llm_responses", "reflections", "playbooks", "proposals",
@@ -639,6 +655,53 @@ class Database:
             "SELECT COUNT(*) AS n FROM experiments WHERE start_ts BETWEEN ? AND ?",
             (start_ts, end_ts)).fetchone()
         return row["n"]
+
+    # --- continuous backtest results (Phase 7 #7): mechanical metrics, audit-truth ---
+    def record_backtest_result(self, ts, strategy, *, pair, interval, train, test, window,
+                               cutoff_ms, oos, trusted) -> int:
+        """Append one backtest run for `strategy`. `oos` and `trusted` are walk_forward aggregate
+        dicts (the trusted one over post-cutoff folds). Returns the row id."""
+        cur = self.conn.execute(
+            "INSERT INTO backtest_results(ts, strategy, pair, interval, train, test, window,"
+            " cutoff_ms, folds, oos_return_pct, oos_sharpe, oos_hit_rate, oos_max_dd, oos_trades,"
+            " trusted_folds, trusted_return_pct, trusted_sharpe, trusted_hit_rate)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (ts, strategy, pair, interval, train, test, window, cutoff_ms,
+             oos.get("folds"), oos.get("compounded_return_pct"), oos.get("mean_sharpe"),
+             oos.get("hit_rate"), oos.get("worst_drawdown"), oos.get("total_trades"),
+             trusted.get("folds"), trusted.get("compounded_return_pct"), trusted.get("mean_sharpe"),
+             trusted.get("hit_rate")))
+        self.conn.commit()
+        return cur.lastrowid
+
+    @staticmethod
+    def _backtest_row(r):
+        return {k: r[k] for k in r.keys()}
+
+    def recent_backtest_results(self, limit=50, strategy=None) -> list:
+        if strategy is not None:
+            rows = self.conn.execute(
+                "SELECT * FROM backtest_results WHERE strategy=? ORDER BY ts DESC, id DESC LIMIT ?",
+                (strategy, limit)).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM backtest_results ORDER BY ts DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        return [self._backtest_row(r) for r in rows]
+
+    def latest_backtest_per_strategy(self) -> list:
+        """The most recent backtest row for each strategy (for the UI), newest first."""
+        rows = self.conn.execute(
+            "SELECT b.* FROM backtest_results b JOIN ("
+            "  SELECT strategy, MAX(ts) AS mts FROM backtest_results GROUP BY strategy) m"
+            " ON b.strategy=m.strategy AND b.ts=m.mts ORDER BY b.ts DESC, b.id DESC").fetchall()
+        # collapse any same-ts ties to one row per strategy
+        seen, out = set(), []
+        for r in rows:
+            if r["strategy"] in seen:
+                continue
+            seen.add(r["strategy"])
+            out.append(self._backtest_row(r))
+        return out
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
