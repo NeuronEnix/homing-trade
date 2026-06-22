@@ -33,6 +33,9 @@ class Config:
     ai_claude_code_poll_sec: int = 3600     # how often it consults Claude (seconds)
     ai_anthropic_enabled: bool = False      # backend: Anthropic API (needs ANTHROPIC_API_KEY)
     ai_anthropic_poll_sec: int = 900
+    # Charts fed to the AI each consult (it can also request its own via requested_charts).
+    ai_timeframes: list[str] = field(default_factory=lambda: ["1m", "5m", "15m", "30m", "1h"])
+    ai_chart_limit: int = 150               # candles per chart
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -119,6 +122,8 @@ def from_env(base=None, *, dotenv_path=".env"):
         ai_claude_code_poll_sec=_i("AI_CLAUDE_CODE_POLL_IN_SEC", cfg.ai_claude_code_poll_sec),
         ai_anthropic_enabled=_b("AI_ANTHROPIC_IS_ENABLED", cfg.ai_anthropic_enabled),
         ai_anthropic_poll_sec=_i("AI_ANTHROPIC_POLL_IN_SEC", cfg.ai_anthropic_poll_sec),
+        ai_timeframes=_list("HT_AI_TIMEFRAMES", cfg.ai_timeframes),
+        ai_chart_limit=_i("HT_AI_CHART_LIMIT", cfg.ai_chart_limit),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 

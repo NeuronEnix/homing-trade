@@ -17,16 +17,20 @@ from homing_trade.skills.llm_trader import LlmTrader
 def build_ai_traders(cfg):
     """Return the list of enabled AI trader strategies (possibly empty)."""
     traders = []
+    tfs = tuple(getattr(cfg, "ai_timeframes", ("1m", "5m", "15m", "30m", "1h")))
+    chart_limit = getattr(cfg, "ai_chart_limit", 150)
     if getattr(cfg, "ai_claude_code_enabled", False):
         traders.append(LlmTrader(
             name="llm_claude_code", backend="cli",
             model=cfg.llm_model, pair=cfg.pair_candles,
             interval_sec=getattr(cfg, "ai_claude_code_poll_sec", 3600),
+            timeframes=tfs, chart_limit=chart_limit,
         ))
     if getattr(cfg, "ai_anthropic_enabled", False):
         traders.append(LlmTrader(
             name="llm_anthropic", backend="api",
             model=cfg.llm_model, pair=cfg.pair_candles,
             interval_sec=getattr(cfg, "ai_anthropic_poll_sec", 900),
+            timeframes=tfs, chart_limit=chart_limit,
         ))
     return traders

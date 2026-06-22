@@ -9,7 +9,7 @@ def candles(n=60, start=1000, step=60000, price=64000.0):
                    time=start + i * step) for i in range(n)]
 
 
-def PROV(interval):  # multi-timeframe provider stub — no network in tests
+def PROV(interval, limit=150, start=None, end=None):  # chart provider stub — no network in tests
     return candles()
 
 
@@ -117,6 +117,33 @@ def test_next_poll_clamped_to_max_and_floor():
     t2 = LlmTrader(client=under, interval_sec=300, provider=PROV, min_interval_sec=30)
     t2.on_candle(candles(), None)
     assert t2._next_interval_sec == 30        # floored
+
+
+def test_ai_requests_specific_charts():
+    calls = []
+    def prov(interval, limit=150, start=None, end=None):
+        calls.append((interval, limit, start, end))
+        return candles()
+    c = _Client({"observation": "o", "prediction": "p", "rationale": "r", "action": "hold",
+                 "confidence": 0.3, "next_check_in_sec": 300,
+                 "requested_charts": [{"interval": "1h", "limit": 300},
+                                      {"interval": "4h", "start": "2026-06-20T00:00:00Z",
+                                       "end": "2026-06-22T00:00:00Z"},
+                                      {"interval": "BOGUS", "limit": 10}]})
+    t = LlmTrader(client=c, provider=prov, timeframes=("1m", "15m"), chart_limit=150)
+    t.on_candle(candles(), None)              # first consult uses defaults (1m, 15m)
+    assert ("1m", 150, None, None) in calls and ("15m", 150, None, None) in calls
+    # the AI's request is validated (BOGUS dropped, missing limit filled) and stored
+    assert t._requested == [
+        {"interval": "1h", "limit": 300, "start": None, "end": None},
+        {"interval": "4h", "limit": 150, "start": "2026-06-20T00:00:00Z", "end": "2026-06-22T00:00:00Z"},
+    ]
+    calls.clear()
+    t._last_decision_ts = None                # bypass cadence
+    t.on_candle(candles(), None)              # next consult fetches exactly what the AI asked for
+    assert ("1h", 300, None, None) in calls
+    assert ("4h", 150, "2026-06-20T00:00:00Z", "2026-06-22T00:00:00Z") in calls
+    assert not any(iv == "BOGUS" for iv, *_ in calls)
 
 
 def test_resample_15m():

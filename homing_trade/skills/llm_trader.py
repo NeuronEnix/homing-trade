@@ -10,19 +10,36 @@ no `anthropic` package, or any error, it degrades to HOLD — it never crashes t
 """
 import json
 import time
+from homing_trade import feed
 from homing_trade.skills.base import Strategy
 from homing_trade.skills.indicators import ema, rsi
 from homing_trade.models import Candle, Signal
 
+DEFAULT_TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h")
+
 _SCHEMA = {
     "type": "object",
     "properties": {
-        "observation": {"type": "string"},   # what you SEE on the 1m + 15m charts
+        "observation": {"type": "string"},   # what you SEE across the charts
         "prediction": {"type": "string"},     # what you PREDICT price will do next
         "rationale": {"type": "string"},      # WHY that prediction leads to this decision
         "action": {"type": "string", "enum": ["LONG", "SHORT", "CLOSE", "HOLD"]},
         "confidence": {"type": "number"},
         "next_check_in_sec": {"type": "number"},  # how soon you want to look again
+        "requested_charts": {                  # OPTIONAL: which charts you want to see NEXT time
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "interval": {"type": "string"},
+                    "limit": {"type": "number"},
+                    "start": {"type": "string"},   # ISO-8601 UTC, optional date range
+                    "end": {"type": "string"},
+                },
+                "required": ["interval"],
+                "additionalProperties": False,
+            },
+        },
     },
     "required": ["observation", "prediction", "rationale", "action", "confidence", "next_check_in_sec"],
     "additionalProperties": False,
@@ -31,21 +48,21 @@ _SCHEMA = {
 _SYSTEM = (
     "You are a disciplined crypto-futures trader for the BTC/USDT perpetual (INR margin; "
     "leverage and position size are handled elsewhere — decide direction and timing only). "
-    "You are given the 1-minute and 15-minute chart state. Default to HOLD unless there is a "
-    "clear, multi-timeframe edge: trend alignment across BOTH timeframes, a momentum extreme "
-    "to fade, or a clean breakout with expanding volatility. Avoid choppy, low-volatility, or "
-    "conflicting tapes — they bleed fees, especially at high leverage. LONG only when flat and "
-    "bullish; SHORT only when flat and bearish; CLOSE to exit an open position when the thesis "
-    "is gone.\n\n"
+    "You are given several timeframe charts under 'charts'. Default to HOLD unless there is a "
+    "clear, multi-timeframe edge: trend alignment across timeframes, a momentum extreme to fade, "
+    "or a clean breakout with expanding volatility. Avoid choppy, low-volatility, or conflicting "
+    "tapes — they bleed fees, especially at high leverage. LONG only when flat and bullish; SHORT "
+    "only when flat and bearish; CLOSE to exit an open position when the thesis is gone.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
-    "  observation — what you actually SEE on the 1m and 15m charts (trend, EMAs, RSI, volatility).\n"
+    "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
     "  rationale   — WHY that prediction leads to this action (tie observation -> prediction -> decision).\n"
     "  action, confidence (0-1).\n"
-    "  next_check_in_sec — how many SECONDS until you want to see the market again. You will be "
-    "re-consulted at most every 'max_check_sec' seconds (given in the data), but you may request "
-    "SOONER (down to ~60) when a setup is developing, a breakout looks imminent, or you hold a "
-    "position you need to watch closely. When the tape is quiet/choppy, ask for the max."
+    "  next_check_in_sec — seconds until you want to look again; at most 'max_check_sec' (given in "
+    "the data), but request SOONER (down to ~60) when a setup is developing or you hold a position.\n"
+    "  requested_charts — OPTIONAL: choose which charts you see NEXT time. Each item: interval (one of "
+    "'available_intervals'), optional limit (<=1000 candles), and an optional UTC date range "
+    "start/end as ISO-8601 strings (e.g. '2026-06-20T00:00:00Z'). Omit to keep the default set."
 )
 
 
@@ -91,8 +108,9 @@ class LlmTrader(Strategy):
     name = "llm_trader"
 
     def __init__(self, model="claude-opus-4-8", interval_sec=900, client=None,
-                 max_tokens=500, backend="api", cli_timeout=120,
-                 pair="B-BTC_USDT", provider=None, name=None, clock=None, min_interval_sec=60):
+                 max_tokens=600, backend="api", cli_timeout=120,
+                 pair="B-BTC_USDT", provider=None, name=None, clock=None, min_interval_sec=60,
+                 timeframes=DEFAULT_TIMEFRAMES, chart_limit=150):
         self.name = name or "llm_trader"   # per-instance so multiple brains get separate wallets
         self.model = model
         self.interval_sec = interval_sec        # the configured MAX gap between consults (seconds)
@@ -102,7 +120,10 @@ class LlmTrader(Strategy):
         self.backend = backend          # "cli" (claude headless, no key) | "api" (anthropic SDK)
         self.cli_timeout = cli_timeout
         self.pair = pair
-        self._provider = provider       # callable(interval)->[Candle]; defaults to the live feed
+        self.timeframes = tuple(timeframes)     # default charts shown each consult
+        self.chart_limit = chart_limit          # candles per chart
+        self._provider = provider       # callable(interval,limit,start,end)->[Candle]; defaults to feed
+        self._requested = None           # charts the AI asked to see next (overrides defaults)
         self._clock = clock or time.time  # WALL-CLOCK cadence — decoupled from the candle loop
         self._last_decision_ts = None
         self._next_interval_sec = interval_sec  # AI sets this each consult (<= interval_sec)
@@ -141,22 +162,58 @@ class LlmTrader(Strategy):
             raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:300]}")
         return _extract_json(str(env.get("result", ""))), proc.stdout
 
-    def _provide(self, interval):
+    def _provide(self, interval, limit=150, start=None, end=None):
         if self._provider is not None:
-            return self._provider(interval)
-        from homing_trade.feed import get_candles
-        return get_candles(self.pair, interval, limit=120)
+            return self._provider(interval, limit, start, end)
+        return feed.get_candles(self.pair, interval, limit=limit, start=start, end=end)
+
+    def _specs(self):
+        """The charts to fetch this consult: the AI's request if it made one, else defaults."""
+        if self._requested:
+            return self._requested
+        return [{"interval": iv, "limit": self.chart_limit} for iv in self.timeframes]
+
+    def _validate_charts(self, req):
+        """Sanitize the AI's requested_charts: valid interval, limit in [1,1000], parseable
+        ISO dates. Returns a clean list or None (fall back to defaults)."""
+        if not isinstance(req, list) or not req:
+            return None
+        valid = []
+        for spec in req:
+            if not isinstance(spec, dict) or spec.get("interval") not in feed.INTERVALS:
+                continue
+            try:
+                feed.to_ms(spec.get("start"))
+                feed.to_ms(spec.get("end"))
+            except Exception:
+                continue  # unparseable date range -> drop this spec
+            valid.append({"interval": spec["interval"],
+                          "limit": max(1, min(int(spec.get("limit") or self.chart_limit), 1000)),
+                          "start": spec.get("start") or None,
+                          "end": spec.get("end") or None})
+        return valid or None
 
     def _build_context(self, candles, position):
-        c1 = self._provide("1m")
-        c15 = self._provide("15m")
-        tf_1m = _tf_summary([c.close for c in c1], c1) if len(c1) >= 21 else None
-        tf_15m = _tf_summary([c.close for c in c15], c15) if len(c15) >= 21 else None
+        charts = {}
+        for spec in self._specs():
+            iv = spec.get("interval")
+            if iv not in feed.INTERVALS:
+                continue
+            lim = max(1, min(int(spec.get("limit") or self.chart_limit), 1000))
+            start, end = spec.get("start"), spec.get("end")
+            try:
+                c = self._provide(iv, lim, start, end)
+            except Exception as exc:
+                charts[iv] = {"error": str(exc)[:120]}
+                continue
+            label = iv if not (start or end) else f"{iv} {start or ''}..{end or ''}".strip()
+            charts[label] = (_tf_summary([x.close for x in c], c) if len(c) >= 21
+                             else {"n": len(c), "note": "insufficient data"})
         return {
-            "tf_1m": tf_1m,
-            "tf_15m": tf_15m,
+            "charts": charts,
             "position": (position.side if position else "flat"),
-            "max_check_sec": self.interval_sec,  # ceiling for next_check_in_sec
+            "max_check_sec": self.interval_sec,           # ceiling for next_check_in_sec
+            "available_intervals": list(feed.INTERVALS),  # what you may request
         }
 
     def on_candle(self, candles, position):
@@ -187,19 +244,24 @@ class LlmTrader(Strategy):
             except (TypeError, ValueError):
                 req = self.interval_sec
             self._next_interval_sec = max(self.min_interval_sec, min(req, self.interval_sec))
+            # AI picks the charts it wants next time (validated); else fall back to defaults.
+            self._requested = self._validate_charts(data.get("requested_charts"))
             reason = f"LLM({self.backend}) {action}: {rat}"
             if pred:
                 reason += f" | predicts: {pred}"
             reason += f" [recheck ~{self._next_interval_sec:g}s]"
+            # per-timeframe trend, derived from the charts we showed
+            trends = {lbl: c["trend"] for lbl, c in ctx["charts"].items()
+                      if isinstance(c, dict) and "trend" in c}
             return Signal(
                 action,
                 confidence=float(data.get("confidence", 0.5)),
                 reason=reason[:400],
-                indicators={"tf_1m": ctx["tf_1m"]["trend"] if ctx["tf_1m"] else "n/a",
-                            "tf_15m": ctx["tf_15m"]["trend"] if ctx["tf_15m"] else "n/a"},
+                indicators=trends,
                 raw=raw,
                 meta={"observation": obs, "prediction": pred, "rationale": rat,
-                      "next_check_in_sec": self._next_interval_sec},
+                      "next_check_in_sec": self._next_interval_sec,
+                      "requested_charts": self._requested},
             )
         except Exception as exc:  # missing key/package/CLI, network, bad JSON -> HOLD + error alert
             return Signal("HOLD", reason=f"llm unavailable: {exc}", error=str(exc))

@@ -9,7 +9,7 @@ switch, and an opt-in (user-armed) live path.
 > 💸 **Paper-first. No real money. No API keys. No live orders** unless *you* deliberately
 > arm the live adapter with your own keys. This is a learning-and-research tool first.
 
-## Status — all four phases complete (192 tests)
+## Status — all four phases complete (203 tests)
 
 | Phase | What it adds |
 |-------|--------------|
@@ -122,7 +122,7 @@ error is swallowed. Remove `HT_ALERT_MODE` to go back to terminal output (defaul
 ## AI traders — Claude decides entries (optional)
 
 `homing_trade/skills/llm_trader.py` lets **Claude read the 1-minute + 15-minute charts and
-decide *when* to trade** (LONG/SHORT/CLOSE/HOLD) — direction and timing only; size, leverage,
+decide *when* to trade** across multiple timeframes (1m/5m/15m/30m/1h by default, and it can request more — any interval up to day units, by count or ISO-UTC date range). Direction/timing only; size, leverage,
 and the daily risk limits stay with the engine. Degrades to HOLD on any error.
 
 There are **two independent brains** (`homing_trade/ai_traders.py`), each toggled and paced
@@ -150,5 +150,5 @@ timeframes beats the market. Paper-test it hard before trusting it.
 ## Tests
 
 ```bash
-python -m pytest -q     # 192 tests
+python -m pytest -q     # 203 tests
 ```
