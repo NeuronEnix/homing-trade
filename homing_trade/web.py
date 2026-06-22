@@ -35,6 +35,10 @@ class Controller:
         self._commands = queue.Queue()
         self.last_error = None
         self.notifier = notifier or build_notifier(cfg)
+        # Per-strategy enable/disable. A disabled strategy keeps existing-position risk
+        # management but takes no new decisions (and AI traders skip the consult). Runtime
+        # state — resets on restart. The engine reads it live via the is_disabled callback.
+        self._disabled = set()
 
     def status(self):
         if self._thread and self._thread.is_alive():
@@ -54,7 +58,7 @@ class Controller:
         try:
             self._runner(self.cfg, notifier=self.notifier, should_stop=self._stop.is_set,
                          is_paused=self._paused.is_set, sleeper=lambda s: self._stop.wait(s),
-                         commands=self._commands)
+                         commands=self._commands, is_disabled=lambda n: n in self._disabled)
         except Exception as exc:  # surface engine crashes in the UI
             self.last_error = str(exc)
 
@@ -74,6 +78,19 @@ class Controller:
         if strategy:
             self._commands.put({"action": "close", "strategy": strategy})
 
+    def set_strategy_enabled(self, strategy, enabled):
+        """Enable/disable one strategy at runtime (the engine reads this live each tick)."""
+        if not strategy:
+            return
+        if enabled:
+            self._disabled.discard(strategy)
+        else:
+            self._disabled.add(strategy)
+
+    @property
+    def disabled(self):
+        return set(self._disabled)
+
     def reset(self):
         """Stop and wipe the paper ledger (keeps cached candles)."""
         self.stop()
@@ -87,6 +104,7 @@ class Controller:
 def build_state(cfg, controller):
     """Snapshot of everything the UI shows (read-only)."""
     repo = Repository.open(cfg.db_path)
+    disabled = controller.disabled
     try:
         sq = SelfQuery(repo, cfg.starting_balance)
         names = repo.strategy_names()
@@ -115,6 +133,7 @@ def build_state(cfg, controller):
             m = perf.get(n, {})
             pf = m.get("profit_factor")
             item = {"name": n, "is_ai": n.startswith("llm_"), "rank": rank.get(n),
+                    "disabled": n in disabled,
                     "balance": round(bal, 2), "equity": round(equity, 2),
                     "pnl_pct": round((equity - cfg.starting_balance) / cfg.starting_balance * 100, 2),
                     "trades": m.get("trades", 0),
@@ -226,6 +245,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif self.path == "/api/close":
             self.controller.close_trade(body.get("strategy"))
             self._send({"ok": True})
+        elif self.path == "/api/toggle":
+            strategy = body.get("strategy")
+            if not strategy:
+                return self._send({"error": "strategy required"}, 400)
+            self.controller.set_strategy_enabled(strategy, bool(body.get("enabled")))
+            self._send({"ok": True, "disabled": sorted(self.controller.disabled)})
         else:
             self._send({"error": "not found"}, 404)
 

@@ -61,7 +61,8 @@ def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, gua
     return opened
 
 
-def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is_paused=None):
+def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is_paused=None,
+                 is_disabled=None):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
     paused = bool(is_paused and is_paused())  # when paused: manage/close existing, open nothing new
@@ -77,8 +78,17 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         weights = {}
     for skill in skills:
         weight = weights.get(skill.name, 1.0)
-        # 1. risk checks on any existing position (stop / liquidation)
+        # 1. risk checks on any existing position (stop / liquidation) — runs even when the
+        #    strategy is disabled, so a parked position still gets its stop/liquidation safety.
         position = pm.manage_risk(skill, db.get_open_position(skill.name), candle, now_ms)
+        # 1b. disabled strategy: keep its existing position risk-managed, but take no new
+        #     decision — skips the consult entirely (no AI cost) and opens nothing new. Its
+        #     open position can still be exited via the manual close command (_drain_commands).
+        if is_disabled and is_disabled(skill.name):
+            pos_now = db.get_open_position(skill.name)
+            unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
+            db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
+            continue
         # 2. strategy decision
         signal = skill.on_candle(candles, position)
         decision_id = uuid.uuid4().hex
@@ -172,7 +182,7 @@ class SkillRunner:
         # Only alert on trades from now on (skip everything already in the ledger).
         self.last_alert_id = ledger.max_trade_id() if notifier is not None else 0
 
-    def run_tick(self, candles, *, is_paused=None, commands=None):
+    def run_tick(self, candles, *, is_paused=None, commands=None, is_disabled=None):
         candle = candles[-1]
         newest = str(candle.time)
         # Manual UI commands (e.g. exit a trade) run here, in the DB-owning thread.
@@ -180,13 +190,13 @@ class SkillRunner:
         # Mechanical skills: only on a genuinely new candle (candle-driven).
         if self.mech_skills and self.ledger.get_state("last_candle_time") != newest:
             process_tick(self.ledger, self.broker, self.mech_skills, candles,
-                         self.cfg, self.guard, None, is_paused)
+                         self.cfg, self.guard, None, is_paused, is_disabled)
             self.ledger.set_state("last_candle_time", newest)
         # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
         # The notifier lets a Claude/CLI error ping Discord (deduped inside process_tick).
         if self.ai_traders:
             process_tick(self.ledger, self.broker, self.ai_traders, candles,
-                         self.cfg, self.guard, self.notifier, is_paused)
+                         self.cfg, self.guard, self.notifier, is_paused, is_disabled)
         self._emit_trade_alerts()
 
     def _emit_trade_alerts(self):
@@ -220,7 +230,7 @@ def _make_guard(cfg):
 
 
 def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None,
-        should_stop=None, is_paused=None, commands=None):
+        should_stop=None, is_paused=None, commands=None, is_disabled=None):
     sleeper = sleeper or time.sleep
     repo = Repository.open(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
@@ -238,7 +248,8 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                 candles = []
             if candles:
                 repo.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
-                runner.run_tick(candles, is_paused=is_paused, commands=commands)
+                runner.run_tick(candles, is_paused=is_paused, commands=commands,
+                                is_disabled=is_disabled)
                 # KILL SWITCH: stop the bot immediately when the daily loss limit trips.
                 if guard is not None and guard.halted_reason:
                     repo.record_risk_event(int(time.time() * 1000), None, "halt", guard.halted_reason)
