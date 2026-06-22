@@ -64,10 +64,30 @@ def test_profit_factor_none_when_no_losses(tmp_path):
     assert p["win_rate"] == 1.0
 
 
+def test_outcome_attribution_and_embargo(tmp_path):
+    repo = Repository.open(str(tmp_path / "oa.db"))
+    repo.ensure_strategy("ma_trend", 5000.0)
+    repo.record_trade("ma_trend", 1, "LONG", "OPEN", 100, 1, 0.1, -0.1, 1000,
+                      decision_id="d1", regime_at_entry="trend_up")
+    repo.record_trade("ma_trend", 1, "LONG", "CLOSE", 110, 1, 0.1, 9.9, 2000, exit_reason="signal")
+    repo.record_trade("ma_trend", 2, "LONG", "OPEN", 100, 1, 0.1, -0.1, 3000, regime_at_entry="chop")
+    repo.record_trade("ma_trend", 2, "LONG", "CLOSE", 95, 1, 0.1, -5.1, 4000, exit_reason="stop")
+    repo.rebuild_trade_outcomes()
+    sq = SelfQuery(repo, 5000.0)
+    rp = sq.regime_performance()
+    assert rp["trend_up"]["trades"] == 1 and rp["trend_up"]["win_rate"] == 1.0
+    assert rp["chop"]["trades"] == 1 and rp["chop"]["win_rate"] == 0.0
+    erb = sq.exit_reason_breakdown()
+    assert set(erb) == {"signal", "stop"} and erb["stop"]["trades"] == 1
+    assert sq.directional_accuracy() == 0.5            # 1 of 2 directional bets right
+    assert sq.outcomes(as_of=1500) == []               # both realized later -> embargoed
+    assert len(sq.outcomes(as_of=5000)) == 2
+
+
 class _RecordingRepo:
     """Wraps a repo and records every method name SelfQuery touches."""
     READS = {"closed_pnls", "equity_series", "get_balance",
-             "recent_risk_events", "taken_action_counts"}
+             "recent_risk_events", "taken_action_counts", "trade_outcomes"}
 
     def __init__(self, real):
         self._real = real
@@ -85,5 +105,9 @@ def test_selfquery_only_calls_read_methods(tmp_path):
     sq.leaderboard(["ma_trend"])
     sq.risk_event_counts()
     sq.decision_breakdown("ma_trend")
+    sq.outcomes()
+    sq.regime_performance()
+    sq.exit_reason_breakdown()
+    sq.directional_accuracy()
     assert spy.calls                                  # it did call the repo
     assert set(spy.calls) <= _RecordingRepo.READS     # ...and ONLY read methods (no writes)
