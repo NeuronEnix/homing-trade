@@ -8,6 +8,7 @@ from homing_trade.web import Controller, build_state, make_server
 from homing_trade.engine import process_tick, _open_position, _drain_commands
 from homing_trade.broker import Broker
 from homing_trade.db import Database
+from homing_trade.repository import Repository
 from homing_trade.config import Config
 from homing_trade.models import Candle, Signal
 from homing_trade.skills.base import Strategy
@@ -164,6 +165,52 @@ def test_build_state_brain_log(tmp_path):
     assert cc["rationale"] == "no edge" and cc["next_check_in_sec"] == 900
     assert "raw" not in cc                      # bulky envelope excluded
     json.dumps(st)                              # JSON-safe
+
+
+def test_build_state_regime_and_exit_breakdown(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "rb.db"))
+    db = Database(cfg.db_path)
+    db.ensure_strategy("ma", 5000.0)
+    # one winning trend_up trade (signal exit), one losing chop trade (stop exit)
+    db.record_trade("ma", 1, "LONG", "OPEN", 100, 1, 0.1, -0.1, 1000, regime_at_entry="trend_up")
+    db.record_trade("ma", 1, "LONG", "CLOSE", 110, 1, 0.1, 9.9, 2000, exit_reason="signal")
+    db.record_trade("ma", 2, "LONG", "OPEN", 100, 1, 0.1, -0.1, 3000, regime_at_entry="chop")
+    db.record_trade("ma", 2, "LONG", "CLOSE", 95, 1, 0.1, -5.1, 4000, exit_reason="stop")
+    db.rebuild_trade_outcomes()
+    db.close()
+
+    class _Ctrl:
+        last_error = None
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    rb = st["regime_breakdown"]
+    assert rb["trend_up"]["trades"] == 1 and rb["trend_up"]["win_rate"] == 1.0
+    assert rb["chop"]["trades"] == 1 and rb["chop"]["win_rate"] == 0.0
+    eb = st["exit_breakdown"]
+    assert set(eb) == {"signal", "stop"} and eb["stop"]["trades"] == 1
+    json.dumps(st)                                          # JSON-safe
+
+
+def test_process_tick_rebuilds_trade_outcomes(tmp_path):
+    # The engine must keep trade_outcomes fresh: open then close a position across two ticks
+    # and assert the denormalized outcome row appears (this is what the breakdown panels read).
+    class _OpenThenClose:
+        name = "ma"
+        def __init__(self): self.n = 0
+        def on_candle(self, candles, position):
+            self.n += 1
+            act = "LONG" if position is None else "CLOSE"
+            return Signal(action=act, confidence=1.0, reason="x", indicators={})
+    cfg = Config(db_path=str(tmp_path / "to.db"))
+    db = Database(cfg.db_path); db.ensure_strategy("ma", 5000.0)
+    repo = Repository.open(cfg.db_path)
+    broker = Broker(cfg.fee, cfg.slippage)
+    skill = _OpenThenClose()
+    process_tick(repo, broker, [skill], candles(), cfg)     # opens
+    process_tick(repo, broker, [skill], candles(), cfg)     # closes -> outcome row built
+    outs = repo.trade_outcomes()
+    repo.close(); db.close()
+    assert len(outs) == 1 and outs[0]["strategy"] == "ma"
 
 
 def test_build_state_profit_factor_none_is_json_safe(tmp_path):

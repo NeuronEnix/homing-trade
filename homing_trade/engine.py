@@ -120,6 +120,12 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
         db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
+    # Refresh the denormalized outcome table (open->close joins + MAE/MFE from the candle path)
+    # so the UI's per-regime/per-exit attribution and the reflection layer read fresh data.
+    # Runs once per tick (candle for mech skills, poll cadence for AI traders) + idempotent;
+    # cost scales with completed-trade count, not history. A no-op on ledgers without a
+    # trade_outcomes table (the in-memory backtest ledger), so backtests stay linear.
+    db.rebuild_trade_outcomes(cfg.pair_candles, cfg.interval)
 
 
 def _drain_commands(db, broker, skills, candle, commands):

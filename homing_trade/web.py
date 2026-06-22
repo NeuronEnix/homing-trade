@@ -150,6 +150,11 @@ def build_state(cfg, controller):
              "error": r["error"]}
             for r in repo.recent_llm_responses(None, 30)
         ]
+        # Per-regime & per-exit-reason attribution over completed trades (read-only over the
+        # denormalized trade_outcomes table). No embargo here: the dashboard shows the human
+        # all realized outcomes; the as_of embargo is for the learning loop, not display.
+        regime_breakdown = sq.regime_performance()
+        exit_breakdown = sq.exit_reason_breakdown()
         return {
             "status": controller.status(),
             "last_error": controller.last_error,
@@ -158,6 +163,7 @@ def build_state(cfg, controller):
                        "kill_switch": cfg.max_daily_loss, "pair": cfg.pair_candles},
             "strategies": strategies, "trades": trades, "decisions": decisions,
             "brain_log": brain_log,
+            "regime_breakdown": regime_breakdown, "exit_breakdown": exit_breakdown,
         }
     finally:
         repo.close()
