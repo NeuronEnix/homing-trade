@@ -23,7 +23,7 @@ DEFAULT_TIMEFRAMES = ("15m", "1h", "4h")   # bird's-eye context; AI drills down 
 # Identity of THIS system prompt. Bump on any change to _SYSTEM/_SCHEMA so a decision is
 # attributable to the exact prompt that produced it. When an approved playbook is injected, the
 # effective prompt_version becomes f"{PROMPT_VERSION}+{playbook_version}".
-PROMPT_VERSION = "mtf-v4"
+PROMPT_VERSION = "mtf-v5"
 
 _SCHEMA = {
     "type": "object",
@@ -81,6 +81,10 @@ _SYSTEM = (
     "cost (a wide spread means worse fills — prefer patience or smaller size) and `imbalance` "
     "(>0.5 = heavier bid depth, <0.5 = heavier ask depth) as a short-term pressure read. On price "
     "it overrides cross-reference venues. Still not a standalone trigger.\n\n"
+    "If the data includes a 'price_ref' field (an INDEPENDENT CoinGecko USD reference price + 24h "
+    "change per asset), use it only to SANITY-CHECK the venue: a large gap between this reference "
+    "and the order-book mid/mark suggests stale or illiquid venue data — a reason for CAUTION (size "
+    "down / wait), not a trade in itself.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
     "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
