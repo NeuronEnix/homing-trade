@@ -4,7 +4,7 @@ import time
 from homing_trade.allocator import compute_allocations, recent_performance
 from homing_trade.config import CONFIG, effective_leverage
 from homing_trade.risk import DailyRiskGuard
-from homing_trade.db import Database
+from homing_trade.repository import Repository
 from homing_trade.broker import Broker
 from homing_trade.feed import get_candles
 from homing_trade.models import Position
@@ -154,7 +154,7 @@ def _drain_commands(db, broker, skills, candle, commands):
 def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None,
         should_stop=None, is_paused=None, commands=None):
     sleeper = sleeper or time.sleep
-    db = Database(cfg.db_path)
+    repo = Repository.open(cfg.db_path)
     broker = Broker(cfg.fee, cfg.slippage)
     # Mechanical skills act once per new candle; AI traders run every cycle on their own
     # wall-clock cadence (so they can poll faster than the candle interval). Both independent.
@@ -162,11 +162,10 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
     ai_traders = build_ai_traders(cfg)
     skills = mech_skills + ai_traders
     for s in skills:
-        db.ensure_strategy(s.name, cfg.starting_balance)
+        repo.ensure_strategy(s.name, cfg.starting_balance)
     last_alert_id = 0
     if notifier is not None:
-        _row = db.conn.execute("SELECT MAX(id) AS m FROM trades").fetchone()
-        last_alert_id = _row["m"] or 0
+        last_alert_id = repo.max_trade_id()
     # Risk guard is active only when limits are configured; otherwise None (no overhead).
     guard = None
     if (getattr(cfg, "max_daily_loss", 0) > 0 or getattr(cfg, "max_trade_amount_per_day", 0) > 0
@@ -183,24 +182,24 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                 print(f"[feed] fetch failed, skipping tick: {exc}")
                 candles = []
             if candles:
-                db.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
+                repo.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
                 newest = str(candles[-1].time)
                 # Manual commands from the UI (e.g. exit a trade) run here, in this thread.
-                _drain_commands(db, broker, skills, candles[-1], commands)
+                _drain_commands(repo, broker, skills, candles[-1], commands)
                 # Mechanical skills: only on a genuinely new candle (candle-driven).
-                if mech_skills and db.get_state("last_candle_time") != newest:
-                    process_tick(db, broker, mech_skills, candles, cfg, guard, None, is_paused)
-                    db.set_state("last_candle_time", newest)
+                if mech_skills and repo.get_state("last_candle_time") != newest:
+                    process_tick(repo, broker, mech_skills, candles, cfg, guard, None, is_paused)
+                    repo.set_state("last_candle_time", newest)
                 # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
                 # Pass the notifier so a Claude/CLI error pings Discord (deduped in process_tick).
                 if ai_traders:
-                    process_tick(db, broker, ai_traders, candles, cfg, guard, notifier, is_paused)
+                    process_tick(repo, broker, ai_traders, candles, cfg, guard, notifier, is_paused)
                 ai_names = {t.name for t in ai_traders}
                 if notifier is not None:
-                    for t in db.trades_after(last_alert_id):
+                    for t in repo.trades_after(last_alert_id):
                         msg = f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}"
                         if t["strategy"] in ai_names:   # show WHY for AI trades
-                            why = db.latest_llm_rationale(t["strategy"])
+                            why = repo.latest_llm_rationale(t["strategy"])
                             if why:
                                 msg += f"\n💡 {why[:280]}"
                         notifier.notify("trade", f"{t['strategy']} {t['action']}", msg)
@@ -221,7 +220,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                     s.save()
                 except Exception:
                     pass
-        db.close()
+        repo.close()
 
 
 if __name__ == "__main__":

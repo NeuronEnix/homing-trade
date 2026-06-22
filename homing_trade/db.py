@@ -332,5 +332,9 @@ class Database:
             (last_id,)).fetchall()
         return [dict(r) for r in rows]
 
+    def max_trade_id(self) -> int:
+        row = self.conn.execute("SELECT MAX(id) AS m FROM trades").fetchone()
+        return int(row["m"]) if row and row["m"] is not None else 0
+
     def close(self) -> None:
         self.conn.close()

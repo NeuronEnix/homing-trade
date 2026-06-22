@@ -40,3 +40,18 @@ def test_closed_pnls_and_equity_series(tmp_path):
     repo.record_equity("ma_trend", 5010.0, 2000)
     assert repo.closed_pnls("ma_trend") == [9.9, -10.1]   # CLOSE only, oldest-first
     assert repo.equity_series("ma_trend") == [5000.0, 5010.0]
+
+
+def test_live_loop_delegations(tmp_path):
+    from homing_trade.models import Candle
+    repo = make(tmp_path)
+    repo.ensure_strategy("ma_trend", 5000.0)
+    assert repo.max_trade_id() == 0
+    repo.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    assert repo.max_trade_id() == 1
+    repo.set_state("last_candle_time", "123")
+    assert repo.get_state("last_candle_time") == "123"
+    n = repo.save_candles("B-BTC_USDT", "15m",
+                          [Candle(open=1, high=2, low=0.5, close=1.5, volume=10, time=60000)], "live")
+    assert n == 1
+    assert [t["id"] for t in repo.trades_after(0)] == [1]
