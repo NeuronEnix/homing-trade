@@ -34,11 +34,11 @@ Goal: every action the bot takes (signal, open, close, fill, fee, P&L, AI ration
 - [ ] Create a forward-only `regimes` table `(pair, interval, time, regime, adx, ema_slope, realized_vol)` computed at decision time; reuse/extend `_tf_summary` in `llm_trader.py` and a new ADX helper in `skills/indicators.py`.
 - [ ] Add a denormalized `trade_outcomes` view/table joining open→close `trades` by `position_id`, carrying `decision_id`, entry/exit price+ts, slippage, fees, `realized_pnl`, `pnl_pct`, `mae`, `mfe`, `holding_period_ms`, `exit_reason`, `regime_at_entry`, `prediction_correct`. This single row is what reflection reads.
 - [ ] Enforce an outcome embargo: outcome columns carry `realized_at_ts`; the self-query layer only exposes them where `realized_at_ts <= now` (prevents the Oracle Fallacy).
-- [ ] Build `selfquery.py`: a strictly read-only query API (no writes, parameterized, whitelisted tables) the AI calls for "win_rate / profit_factor / per-regime / per-variant" — wrap `metrics.py` (`sharpe`, `win_rate`, `profit_factor`, `max_drawdown`).
+- [x] Build `selfquery.py`: a strictly read-only query API (no writes, parameterized, whitelisted tables) the AI calls for "win_rate / profit_factor / per-regime / per-variant" — wrap `metrics.py` (`sharpe`, `win_rate`, `profit_factor`, `max_drawdown`). _(read-only `SelfQuery`: win_rate/profit_factor/sharpe/drawdown/expectancy + risk-event counts + intended-vs-taken decision breakdown; per-regime/per-variant extend once regimes/trade_outcomes land)_
 - [ ] Keep the audit-truth tables (`wallets`, `positions`, `trades`, `equity`, `candles`) machine-written only; only `decision_log`, `llm_responses`, `reflections`, `playbooks` may carry model-authored text (Hierarchy of Truth).
 - [ ] Tests: `test_selfquery.py` (read-only enforced, embargo enforced), `test_trade_outcomes.py`, extend `test_db.py`/`test_llm_persistence.py`.
 
-Progress: 1/10 _(v2 schema landed; decision provenance — decision_id/intended/taken/rejection — now populated in process_tick; risk_events fully wired (veto + halt). Remaining: regime/vol/version tagging, slippage, llm replay fields, regimes/trade_outcomes/selfquery)_
+Progress: 2/10 _(v2 schema + decision provenance + risk_events wired; read-only selfquery layer built. Remaining: regime/vol/version tagging, trade slippage, llm replay fields, regimes & trade_outcomes tables + embargo, Hierarchy-of-Truth doc)_
 
 ---
 

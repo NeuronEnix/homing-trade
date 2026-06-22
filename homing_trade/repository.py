@@ -103,6 +103,9 @@ class Repository(Ledger):
     def recent_decisions(self, limit) -> list:
         return self.db.recent_decisions(limit)
 
+    def taken_action_counts(self, strategy) -> dict:
+        return self.db.taken_action_counts(strategy)
+
     def recent_llm_responses(self, strategy=None, limit=20):
         return self.db.recent_llm_responses(strategy, limit)
 
