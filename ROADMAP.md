@@ -62,7 +62,7 @@ Progress: 7/9 _(leaderboard + AI brain-log + per-regime/per-exit breakdown + per
 ## Phase 4 — The autonomous LEARN → CORRECT loop (the heart of the project)
 Goal: the AI reflects over its own SQLite history, finds what went right/wrong, and PROPOSES adjustments; a human approves before anything applies. Nothing self-applies.
 
-- [ ] Add tables: `reflections(id, strategy, kind['per_trade'|'periodic'], ts, batch_from_ts, batch_to_ts, trade_ids_json, metrics_json, lesson, new_playbook_version, model, raw)` and `playbooks(version PK, strategy, created_ts, rules_json, parent_version, retired_ts)` (append-only; never UPDATE a published version).
+- [x] Add tables: `reflections(id, strategy, kind['per_trade'|'periodic'], ts, batch_from_ts, batch_to_ts, trade_ids_json, metrics_json, lesson, new_playbook_version, model, raw)` and `playbooks(version PK, strategy, created_ts, rules_json, parent_version, retired_ts)` (append-only; never UPDATE a published version). _(migration v7; both model-authored; accessors record_reflection/recent_reflections + publish_playbook/latest_playbook/get_playbook/retire_playbook — retire only sets retired_ts, rules_json never mutated; real-DB v6→v7 verified)_
 - [ ] Add `proposals(id, strategy, kind['param'|'prompt'|'playbook'|'strategy_toggle'], payload_json, rationale, status['pending'|'approved'|'rejected'], created_ts, decided_ts, decided_by, source_reflection_id)` — the gate between AI suggestion and applied change.
 - [ ] Build `reflection.py`: a wall-clock-paced (decoupled from the candle loop, like the AI poll cadence) batched retrospection over `trade_outcomes`, producing a compact lesson + a proposed playbook diff. Use it as the PRIMARY loop.
 - [ ] Add a per-closed-trade Reflexion pass (one extra LLM call at CLOSE) that critiques the original observation/prediction/rationale vs realized P&L and `prediction_correct`; store as a `per_trade` reflection (secondary loop — never the only mechanism).
@@ -73,7 +73,7 @@ Goal: the AI reflects over its own SQLite history, finds what went right/wrong, 
 - [ ] Per-rule and per-playbook-version performance slope tracking; auto-surface (as a proposal) a rollback when a playbook version degrades. Disconfirmation guard: flag beliefs the bot stopped testing.
 - [ ] Tests: `test_reflection.py` (batching, embargo respected, mechanical scoring), `test_proposals.py` (nothing applies without approval; protected fields can never be proposed).
 
-Progress: 0/10
+Progress: 1/10 _(reflections + append-only playbooks schema + accessors landed (v7); proposals approval-gate next)_
 
 ---
 
