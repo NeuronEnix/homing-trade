@@ -30,10 +30,11 @@ class PositionManager:
         if position is None:
             return None
         if self.broker.hit_liquidation(position, candle):
-            self.close(skill, position, self.broker.liquidation_price(position), candle, now_ms)
+            self.close(skill, position, self.broker.liquidation_price(position), candle, now_ms,
+                       exit_reason="liquidation")
             return None
         if self.broker.hit_stop(position, candle):
-            self.close(skill, position, position.stop_price, candle, now_ms)
+            self.close(skill, position, position.stop_price, candle, now_ms, exit_reason="stop")
             return None
         return position
 
@@ -63,8 +64,11 @@ class PositionManager:
                                  decision_price=candle.close, slippage=entry_fill - candle.close)
         return (True, None)
 
-    def close(self, skill, position, exit_price, candle, now_ms):
-        """Close a position at exit_price; books pnl/fee and records the trade."""
+    def close(self, skill, position, exit_price, candle, now_ms, exit_reason=None):
+        """Close a position at exit_price; books pnl/fee and records the trade.
+
+        exit_reason (signal / stop / liquidation / manual) is stamped on the CLOSE trade.
+        """
         exit_fill = self.broker.fill_price(exit_price, position.side, is_entry=False)
         pnl = self.broker.realized_pnl(position, exit_fill)
         fee = self.broker.entry_fee(position.size, exit_fill)
@@ -73,7 +77,8 @@ class PositionManager:
         self.ledger.close_position(position.id)
         self.ledger.record_trade(skill.name, position.id, position.side, "CLOSE", exit_fill,
                                  position.size, fee, pnl - fee, now_ms,
-                                 decision_price=exit_price, slippage=exit_fill - exit_price)
+                                 decision_price=exit_price, slippage=exit_fill - exit_price,
+                                 exit_reason=exit_reason)
         if self.guard is not None:
             self.guard.record_close(pnl - fee, now_ms)
         return balance

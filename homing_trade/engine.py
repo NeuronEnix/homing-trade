@@ -107,7 +107,7 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
                 opened, reason = pm.open(skill, signal.action, candle, now_ms, weight)
                 taken_action, rejection = (signal.action, None) if opened else ("BLOCKED", reason)
         elif signal.action == "CLOSE" and position is not None:
-            pm.close(skill, position, candle.close, candle, now_ms)
+            pm.close(skill, position, candle.close, candle, now_ms, exit_reason="signal")
             taken_action = "CLOSE"
         # 3b. log the decision with full provenance (intended vs taken, why blocked)
         db.log_decision(skill.name, now_ms, candle.time, signal.action, signal.confidence,
@@ -137,7 +137,7 @@ def _drain_commands(db, broker, skills, candle, commands):
             if sk is not None:
                 pos = db.get_open_position(sk.name)
                 if pos is not None:
-                    pm.close(sk, pos, candle.close, candle, now_ms)
+                    pm.close(sk, pos, candle.close, candle, now_ms, exit_reason="manual")
 
 
 class SkillRunner:

@@ -40,6 +40,14 @@ def test_embargo_as_of(tmp_path):
     assert len(db.trade_outcomes()) == 1                # no embargo -> all rows
 
 
+def test_exit_reason_flows_into_outcome(tmp_path):
+    db = make(tmp_path)
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 110.0, 1.0, 0.1, 9.9, 5000, exit_reason="stop")
+    db.rebuild_trade_outcomes()
+    assert db.trade_outcomes()[0]["exit_reason"] == "stop"   # carried from the CLOSE trade
+
+
 def test_rebuild_idempotent_and_filter(tmp_path):
     db = make(tmp_path)
     db.ensure_strategy("grid", 5000.0)

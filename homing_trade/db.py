@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -154,6 +154,10 @@ MIGRATIONS = {
         " exit_reason TEXT, regime_at_entry TEXT, decision_id TEXT,"
         " mae REAL, mfe REAL, prediction_correct INTEGER, realized_at_ts INTEGER)",
         "CREATE INDEX IF NOT EXISTS idx_trade_outcomes_strategy ON trade_outcomes(strategy)",
+    ],
+    # v5: record why each position closed (signal / stop / liquidation / manual) on the CLOSE trade.
+    5: [
+        "ALTER TABLE trades ADD COLUMN exit_reason TEXT",
     ],
 }
 
@@ -258,13 +262,13 @@ class Database:
         )
 
     def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts,
-                     *, decision_price=None, slippage=None) -> None:
+                     *, decision_price=None, slippage=None, exit_reason=None) -> None:
         self.conn.execute(
             """INSERT INTO trades(strategy, position_id, side, action, price, size, fee, pnl, ts,
-                                  decision_price, slippage)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                                  decision_price, slippage, exit_reason)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (strategy, position_id, side, action, price, size, fee, pnl, ts,
-             decision_price, slippage),
+             decision_price, slippage, exit_reason),
         )
         self.conn.commit()
 
@@ -477,7 +481,7 @@ class Database:
         with no CLOSE yet are skipped. realized_pnl/fees/slippage sum the position's trades.
         """
         rows = self.conn.execute(
-            "SELECT position_id, strategy, side, action, price, size, fee, pnl, ts, slippage "
+            "SELECT position_id, strategy, side, action, price, size, fee, pnl, ts, slippage, exit_reason "
             "FROM trades WHERE position_id IS NOT NULL ORDER BY position_id, id ASC").fetchall()
         by_pos = {}
         for r in rows:
@@ -497,10 +501,10 @@ class Database:
             self.conn.execute(
                 """INSERT INTO trade_outcomes(position_id, strategy, side, entry_price, exit_price,
                        entry_ts, exit_ts, size, fees, slippage, realized_pnl, pnl_pct,
-                       holding_period_ms, realized_at_ts)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       holding_period_ms, exit_reason, realized_at_ts)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pos_id, o["strategy"], o["side"], o["price"], c["price"], o["ts"], c["ts"],
-                 o["size"], fees, slip, realized, pnl_pct, c["ts"] - o["ts"], c["ts"]))
+                 o["size"], fees, slip, realized, pnl_pct, c["ts"] - o["ts"], c["exit_reason"], c["ts"]))
         self.conn.commit()
 
     def trade_outcomes(self, strategy=None, as_of=None):
