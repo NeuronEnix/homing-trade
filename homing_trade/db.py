@@ -506,14 +506,19 @@ class Database:
             slip = sum((t["slippage"] or 0.0) for t in trs)
             notional = o["price"] * o["size"]
             pnl_pct = (realized / notional * 100) if notional else 0.0
+            # prediction_correct: was the directional bet right (mechanically, from prices —
+            # never the model's self-assessment)? LONG wants exit > entry; SHORT exit < entry.
+            correct = 1 if ((o["side"] == "LONG" and c["price"] > o["price"])
+                            or (o["side"] == "SHORT" and c["price"] < o["price"])) else 0
             self.conn.execute(
                 """INSERT INTO trade_outcomes(position_id, strategy, side, entry_price, exit_price,
                        entry_ts, exit_ts, size, fees, slippage, realized_pnl, pnl_pct,
-                       holding_period_ms, exit_reason, decision_id, regime_at_entry, realized_at_ts)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       holding_period_ms, exit_reason, decision_id, regime_at_entry,
+                       prediction_correct, realized_at_ts)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pos_id, o["strategy"], o["side"], o["price"], c["price"], o["ts"], c["ts"],
                  o["size"], fees, slip, realized, pnl_pct, c["ts"] - o["ts"], c["exit_reason"],
-                 o["decision_id"], o["regime_at_entry"], c["ts"]))
+                 o["decision_id"], o["regime_at_entry"], correct, c["ts"]))
         self.conn.commit()
 
     def trade_outcomes(self, strategy=None, as_of=None):

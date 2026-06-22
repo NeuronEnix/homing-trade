@@ -60,6 +60,25 @@ def test_decision_and_regime_flow_into_outcome(tmp_path):
     assert o["exit_reason"] == "signal"
 
 
+def test_prediction_correct_is_directional(tmp_path):
+    db = make(tmp_path)
+    db.ensure_strategy("grid", 5000.0)
+    # LONG up -> correct
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 110.0, 1.0, 0.1, 9.9, 2000)
+    # LONG down -> incorrect
+    db.record_trade("ma_trend", 3, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 3000)
+    db.record_trade("ma_trend", 3, "LONG", "CLOSE", 90.0, 1.0, 0.1, -10.1, 4000)
+    # SHORT down -> correct
+    db.record_trade("grid", 2, "SHORT", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("grid", 2, "SHORT", "CLOSE", 95.0, 1.0, 0.1, 4.9, 2000)
+    db.rebuild_trade_outcomes()
+    by_pos = {o["position_id"]: o for o in db.trade_outcomes()}
+    assert by_pos[1]["prediction_correct"] == 1   # LONG, price up
+    assert by_pos[3]["prediction_correct"] == 0   # LONG, price down
+    assert by_pos[2]["prediction_correct"] == 1   # SHORT, price down
+
+
 def test_rebuild_idempotent_and_filter(tmp_path):
     db = make(tmp_path)
     db.ensure_strategy("grid", 5000.0)
