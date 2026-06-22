@@ -31,6 +31,7 @@
   .spark{display:block;margin:8px 0 2px} .rank{color:var(--mut);font-weight:700;margin-right:6px}
   .reason{margin-top:8px;font-size:12px;color:var(--mut);white-space:pre-wrap;max-height:150px;overflow:auto}
   .reason b{color:var(--fg)}
+  .brainrow{padding:8px 4px;border-bottom:1px solid var(--bd)} .brainrow .reason{margin-top:4px}
   .err{color:var(--red);font-weight:700}
   table{width:100%;border-collapse:collapse;font-size:12px} td,th{padding:4px 6px;text-align:left;border-bottom:1px solid var(--bd)}
   th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)}
@@ -49,6 +50,8 @@
 <main>
   <div><h2>live prices</h2><div id="prices" class="row"></div></div>
   <div><h2>strategies &amp; AI</h2><div id="strats" class="grid"></div></div>
+  <div><h2>AI brain-log <small class="mut">— what each AI saw / predicted / why</small></h2>
+    <div class="card"><div id="brain" class="logwrap" style="max-height:320px"></div></div></div>
   <div class="grid">
     <div class="card"><h3>recent trades</h3><div class="logwrap"><table id="trades"><thead>
       <tr><th>time</th><th>strategy</th><th>act</th><th>side</th><th>price</th><th>pnl</th></tr></thead><tbody></tbody></table></div></div>
@@ -75,7 +78,18 @@ async function refresh(){
       `<tr><td>${tm(t.ts)}</td><td>${t.strategy}</td><td>${t.action}</td><td>${t.side}</td><td>${fmt(t.price)}</td><td class="${t.pnl>=0?'up':'dn'}">${fmt(t.pnl)}</td></tr>`).join('');
     $('#decisions').querySelector('tbody').innerHTML=s.decisions.map(d=>
       `<tr><td>${tm(d.ts)}</td><td>${d.strategy}</td><td>${d.action}</td><td class="mut">${(d.reason||'').slice(0,90)}</td></tr>`).join('');
+    $('#brain').innerHTML=(s.brain_log||[]).map(brainRow).join('')||'<div class="mut">no AI responses yet</div>';
   }catch(e){$('#err').textContent='UI fetch failed: '+e;}
+}
+function brainRow(b){
+  const conf=b.confidence==null?'':` (${fmt(b.confidence)})`;
+  const next=b.next_check_in_sec?` · next in ${b.next_check_in_sec}s`:'';
+  return `<div class="brainrow"><div class="kv"><span class="b">${b.strategy} <span class="mut">${b.model||b.backend||''}</span></span>
+    <span class="mut">${tm(b.ts)} · ${b.action||'—'}${conf}${next}</span></div>
+    ${b.error?`<div class="err">⚠ ${b.error}</div>`:''}
+    ${b.observation?`<div class="reason"><b>saw:</b> ${b.observation}</div>`:''}
+    ${b.prediction?`<div class="reason"><b>predicts:</b> ${b.prediction}</div>`:''}
+    ${b.rationale?`<div class="reason"><b>why:</b> ${b.rationale}</div>`:''}</div>`;
 }
 function spark(arr){
   if(!arr||arr.length<2) return '';
