@@ -25,6 +25,21 @@ def test_open_records_position_and_deducts_fee():
     assert any(t["action"] == "OPEN" for t in led.trades)
 
 
+def test_open_close_record_slippage():
+    cfg = Config()
+    led = MemoryLedger("ma_trend", 5000.0)
+    pm = PositionManager(led, Broker(cfg.fee, cfg.slippage), cfg)
+    pm.open(_Skill(), "LONG", _candle(close=100.0), now_ms=1000)
+    open_t = led.trades[-1]
+    assert open_t["decision_price"] == 100.0                 # the candle close the open used
+    assert open_t["slippage"] == open_t["price"] - 100.0     # fill - decision price
+    pos = led.get_open_position("ma_trend")
+    pm.close(_Skill(), pos, exit_price=110.0, candle=_candle(close=110.0), now_ms=2000)
+    close_t = led.trades[-1]
+    assert close_t["decision_price"] == 110.0
+    assert close_t["slippage"] == close_t["price"] - 110.0
+
+
 def test_close_books_pnl_and_clears_position():
     cfg = Config()
     led = MemoryLedger("ma_trend", 5000.0)

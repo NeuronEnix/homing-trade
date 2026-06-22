@@ -59,7 +59,8 @@ class PositionManager:
                        leverage=plan.leverage, margin=plan.margin, stop_price=plan.stop_price,
                        opened_at=candle.time)
         pid = self.ledger.open_position(pos)
-        self.ledger.record_trade(skill.name, pid, side, "OPEN", entry_fill, plan.size, fee, -fee, now_ms)
+        self.ledger.record_trade(skill.name, pid, side, "OPEN", entry_fill, plan.size, fee, -fee, now_ms,
+                                 decision_price=candle.close, slippage=entry_fill - candle.close)
         return (True, None)
 
     def close(self, skill, position, exit_price, candle, now_ms):
@@ -71,7 +72,8 @@ class PositionManager:
         self.ledger.set_balance(skill.name, balance)
         self.ledger.close_position(position.id)
         self.ledger.record_trade(skill.name, position.id, position.side, "CLOSE", exit_fill,
-                                 position.size, fee, pnl - fee, now_ms)
+                                 position.size, fee, pnl - fee, now_ms,
+                                 decision_price=exit_price, slippage=exit_fill - exit_price)
         if self.guard is not None:
             self.guard.record_close(pnl - fee, now_ms)
         return balance
