@@ -67,5 +67,21 @@ class Repository(Ledger):
         """Equity snapshots for a strategy, oldest-first."""
         return self.db.equity_series(strategy)
 
+    # --- live-loop methods used by engine.run (beyond the minimal Ledger interface) ---
+    def max_trade_id(self) -> int:
+        return self.db.max_trade_id()
+
+    def save_candles(self, pair, interval, candles, source) -> int:
+        return self.db.save_candles(pair, interval, candles, source)
+
+    def get_state(self, key) -> str | None:
+        return self.db.get_state(key)
+
+    def set_state(self, key, value) -> None:
+        return self.db.set_state(key, value)
+
+    def trades_after(self, last_id) -> list:
+        return self.db.trades_after(last_id)
+
     def close(self):
         return self.db.close()
