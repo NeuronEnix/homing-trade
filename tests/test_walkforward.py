@@ -154,6 +154,6 @@ def test_format_renders_folds_and_oos_and_empty(monkeypatch):
                         lambda skill, cands, cfg, bal, window=200: _stub(skill.name, return_pct=3.0))
     cs = candles_from([float(i) for i in range(50)])
     txt = _format(walk_forward(MaTrend, cs, CONFIG, 5000.0, train=20, test=10))
-    assert "ma_trend" in txt and "OOS:" in txt and "fold" in txt
+    assert "ma_trend" in txt and "OOS (all):" in txt and "fold" in txt
     empty = _format(walk_forward(MaTrend, candles_from([0.0] * 5), CONFIG, 5000.0, train=20, test=10))
     assert "no folds" in empty

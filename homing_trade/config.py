@@ -81,6 +81,10 @@ class Config:
     regime_filter_enabled: bool = False
     regime_unfavored_weight: float = 0.5          # allocator weight x this when style mismatches regime
     regime_committee_threshold_scale: float = 1.5  # committee threshold x this in non-trending regimes
+    # Phase 7 #6 — profit-mirage trust cutoff (ISO UTC). Backtests are trusted only on post-cutoff,
+    # walk-forward data: an LLM strategy could lean on outcomes it memorized before its knowledge
+    # cutoff. Default = Opus knowledge cutoff; "" disables the constraint.
+    trust_cutoff_iso: str = "2026-01-01"
     qtable_dir: str = "data"
     alert_mode: str = "console"          # "console" | "file" | "webhook" | "telegram" | "null"
     alert_log_path: str = "data/alerts.log"
