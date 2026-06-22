@@ -481,11 +481,19 @@ class Database:
             "WHERE pair=? AND interval=? ORDER BY time DESC LIMIT 1", (pair, interval)).fetchone()
         return dict(row) if row else None
 
-    def rebuild_trade_outcomes(self):
+    def rebuild_trade_outcomes(self, pair=None, interval=None):
         """Rebuild the denormalized trade_outcomes table from trades (idempotent).
 
         One row per completed position (its OPEN paired with its final CLOSE). Positions
         with no CLOSE yet are skipped. realized_pnl/fees/slippage sum the position's trades.
+
+        When both `pair` and `interval` are given (this is a single-instrument bot, so the
+        caller passes `cfg.pair_candles`/`cfg.interval`), each outcome is also enriched with
+        MAE/MFE — the maximum adverse / favorable excursion the trade saw intra-flight,
+        measured from the candle path over the holding window and expressed as a signed
+        return on entry price (MFE >= 0 favorable, MAE <= 0 adverse). Left NULL when pair/
+        interval are absent or no candles cover the window. See `_excursion` for how the
+        wall-clock trade timestamps are mapped onto the bar-open candle grid.
         """
         rows = self.conn.execute(
             "SELECT position_id, strategy, side, action, price, size, fee, pnl, ts, slippage, "
@@ -510,16 +518,57 @@ class Database:
             # never the model's self-assessment)? LONG wants exit > entry; SHORT exit < entry.
             correct = 1 if ((o["side"] == "LONG" and c["price"] > o["price"])
                             or (o["side"] == "SHORT" and c["price"] < o["price"])) else 0
+            mae, mfe = self._excursion(pair, interval, o["side"], o["price"], o["ts"], c["ts"])
             self.conn.execute(
                 """INSERT INTO trade_outcomes(position_id, strategy, side, entry_price, exit_price,
                        entry_ts, exit_ts, size, fees, slippage, realized_pnl, pnl_pct,
                        holding_period_ms, exit_reason, decision_id, regime_at_entry,
-                       prediction_correct, realized_at_ts)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       mae, mfe, prediction_correct, realized_at_ts)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pos_id, o["strategy"], o["side"], o["price"], c["price"], o["ts"], c["ts"],
                  o["size"], fees, slip, realized, pnl_pct, c["ts"] - o["ts"], c["exit_reason"],
-                 o["decision_id"], o["regime_at_entry"], correct, c["ts"]))
+                 o["decision_id"], o["regime_at_entry"], mae, mfe, correct, c["ts"]))
         self.conn.commit()
+
+    def _excursion(self, pair, interval, side, entry_price, entry_ts, exit_ts):
+        """MAE/MFE for one trade from the candle high/low path over its holding window.
+
+        Returns (mae, mfe) as signed returns on entry_price: MFE is the best the trade ever
+        looked, MAE the worst, both in the trade's own direction. (None, None) when pair/
+        interval are missing, entry_price is 0, or no candles cover the window.
+
+        Timestamp mapping: trade ts (entry_ts/exit_ts) is WALL-CLOCK ms (`time.time()` at the
+        moment the bar was processed) while candle `time` is BAR-OPEN ms. A naive
+        `time >= entry_ts` filter would drop the bar the position actually opened into —
+        especially since fetch/processing latency nudges entry_ts just past a bar boundary.
+        So we snap the lower bound DOWN to the bar that *contains* entry_ts (the largest
+        candle time <= entry_ts) and bound the top at exit_ts. Approximate by construction.
+        """
+        if not pair or not interval or not entry_price:
+            return (None, None)
+        anchor = self.conn.execute(
+            "SELECT MAX(time) AS t FROM candles WHERE pair=? AND interval=? AND time<=?",
+            (pair, interval, entry_ts)).fetchone()
+        lo_bound = anchor["t"] if anchor and anchor["t"] is not None else entry_ts
+        row = self.conn.execute(
+            "SELECT MAX(high) AS hi, MIN(low) AS lo FROM candles "
+            "WHERE pair=? AND interval=? AND time>=? AND time<=?",
+            (pair, interval, lo_bound, exit_ts)).fetchone()
+        if row is None or row["hi"] is None:
+            return (None, None)
+        hi, lo = row["hi"], row["lo"]
+        if side == "SHORT":
+            # favorable = price falls; adverse = price rises
+            mfe = (entry_price - lo) / entry_price
+            mae = (entry_price - hi) / entry_price
+        else:  # LONG
+            mfe = (hi - entry_price) / entry_price
+            mae = (lo - entry_price) / entry_price
+        # Excursion is measured from entry (0 at the moment of entry): a favorable excursion
+        # can't be negative, an adverse one can't be positive. Clamp so a gapped window that
+        # never crossed entry honors the MFE>=0 / MAE<=0 invariant instead of reporting a
+        # "favorable" loss.
+        return (min(0.0, mae), max(0.0, mfe))
 
     def trade_outcomes(self, strategy=None, as_of=None):
         """Read trade_outcomes. `as_of` enforces the look-ahead embargo: only rows whose

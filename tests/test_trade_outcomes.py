@@ -1,10 +1,16 @@
 from homing_trade.db import Database
+from homing_trade.models import Candle
 
 
 def make(tmp_path):
     db = Database(str(tmp_path / "to.db"))
     db.ensure_strategy("ma_trend", 5000.0)
     return db
+
+
+def _candles(times_hl):
+    """Build candles from (time, high, low) tuples; open/close/volume don't matter here."""
+    return [Candle(open=h, high=h, low=l, close=l, volume=1.0, time=t) for (t, h, l) in times_hl]
 
 
 def test_rebuild_joins_open_close(tmp_path):
@@ -77,6 +83,77 @@ def test_prediction_correct_is_directional(tmp_path):
     assert by_pos[1]["prediction_correct"] == 1   # LONG, price up
     assert by_pos[3]["prediction_correct"] == 0   # LONG, price down
     assert by_pos[2]["prediction_correct"] == 1   # SHORT, price down
+
+
+def test_mae_mfe_long_from_candle_path(tmp_path):
+    db = make(tmp_path)
+    # LONG @100 held 1000->5000. Path runs up to high 112 and dips to low 96 mid-flight.
+    db.save_candles("B-BTC_USDT", "15m", _candles([
+        (1000, 101, 100), (2000, 106, 99), (3000, 112, 104), (4000, 108, 96), (5000, 110, 105),
+    ]), "test")
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 110.0, 1.0, 0.1, 9.9, 5000)
+    db.rebuild_trade_outcomes(pair="B-BTC_USDT", interval="15m")
+    o = db.trade_outcomes()[0]
+    assert round(o["mfe"], 4) == 0.12     # best: high 112 -> (112-100)/100
+    assert round(o["mae"], 4) == -0.04    # worst: low 96 -> (96-100)/100
+
+
+def test_mae_mfe_short_is_mirrored(tmp_path):
+    db = make(tmp_path)
+    # SHORT @100: favorable = price falls (low 90), adverse = price rises (high 105).
+    db.save_candles("B-BTC_USDT", "15m", _candles([
+        (1000, 102, 98), (2000, 105, 95), (3000, 101, 90),
+    ]), "test")
+    db.record_trade("ma_trend", 1, "SHORT", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "SHORT", "CLOSE", 92.0, 1.0, 0.1, 7.9, 3000)
+    db.rebuild_trade_outcomes(pair="B-BTC_USDT", interval="15m")
+    o = db.trade_outcomes()[0]
+    assert round(o["mfe"], 4) == 0.10     # favorable: low 90 -> (100-90)/100
+    assert round(o["mae"], 4) == -0.05    # adverse: high 105 -> (100-105)/100
+
+
+def test_mae_mfe_window_snaps_to_entry_bar_despite_wallclock_latency(tmp_path):
+    db = make(tmp_path)
+    # Bars open on a 15m grid (900000, 1800000). The position opens at WALL-CLOCK 900350 —
+    # a little after the 900000 bar opened, due to fetch/processing latency — so a naive
+    # `time >= entry_ts` filter would skip the very bar the position opened into and miss its
+    # low. The anchor snaps the lower bound down to that bar so its 96 low is the true MAE.
+    db.save_candles("B-BTC_USDT", "15m", _candles([
+        (900000, 108, 96), (1800000, 110, 102),
+    ]), "test")
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 900350)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 105.0, 1.0, 0.1, 4.9, 1800500)
+    db.rebuild_trade_outcomes(pair="B-BTC_USDT", interval="15m")
+    o = db.trade_outcomes()[0]
+    assert round(o["mae"], 4) == -0.04    # low 96 from the entry bar (dropped by a naive filter)
+    assert round(o["mfe"], 4) == 0.10     # high 110
+
+
+def test_mae_mfe_clamped_to_invariant(tmp_path):
+    db = make(tmp_path)
+    # LONG whose whole candle window sits ABOVE entry (gapped up, never underwater): an
+    # adverse excursion can't be positive, so MAE clamps to 0.0 (not +0.03).
+    db.save_candles("B-BTC_USDT", "15m", _candles([(1000, 115, 103), (2000, 120, 108)]), "test")
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 118.0, 1.0, 0.1, 17.9, 2000)
+    db.rebuild_trade_outcomes(pair="B-BTC_USDT", interval="15m")
+    o = db.trade_outcomes()[0]
+    assert o["mae"] == 0.0                 # never below entry -> clamped
+    assert round(o["mfe"], 4) == 0.20      # high 120
+
+
+def test_mae_mfe_null_without_pair_or_candles(tmp_path):
+    db = make(tmp_path)
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    db.record_trade("ma_trend", 1, "LONG", "CLOSE", 110.0, 1.0, 0.1, 9.9, 5000)
+    db.rebuild_trade_outcomes()                          # no pair/interval -> NULL excursions
+    o = db.trade_outcomes()[0]
+    assert o["mae"] is None and o["mfe"] is None
+    # pair/interval given but no candles cover the window -> still NULL (not a crash)
+    db.rebuild_trade_outcomes(pair="B-BTC_USDT", interval="15m")
+    o = db.trade_outcomes()[0]
+    assert o["mae"] is None and o["mfe"] is None
 
 
 def test_rebuild_idempotent_and_filter(tmp_path):
