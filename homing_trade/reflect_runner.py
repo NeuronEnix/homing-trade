@@ -15,7 +15,6 @@ same Claude backend as the AI traders (CLI = uses Claude Code, no API key). It r
 unless `reflection_enabled`, so reflection stays OFF — and unbilled — until explicitly turned on.
 Nothing it produces is auto-applied: run_once only FILES human-gated proposals.
 """
-import json
 import time
 
 from homing_trade.reflection import ReflectionEngine
@@ -72,35 +71,13 @@ class ReflectionRunner:
 
 def build_reflect_fn(cfg):
     """A `callable(prompt) -> raw_text` for ReflectionEngine, or None when reflection is disabled
-    (so the runner no-ops and nothing is billed). Mirrors the AI-trader backend; never imports
-    its SDK/subprocess until actually called."""
+    (so the runner no-ops and nothing is billed). Uses the shared internal-LLM text adapter; never
+    imports its SDK/subprocess until actually called."""
     if not getattr(cfg, "reflection_enabled", False):
         return None
-    backend = getattr(cfg, "reflection_backend", "cli")
-    model = getattr(cfg, "reflection_model", "") or cfg.llm_model
-    timeout = getattr(cfg, "reflection_cli_timeout", 180)
-    max_tokens = getattr(cfg, "reflection_max_tokens", 800)
-
-    def _cli(prompt):
-        """Shell to the local `claude` CLI (headless) — uses existing Claude Code auth, no key."""
-        import subprocess
-        cmd = ["claude", "-p", prompt + "\n\nRespond with ONLY the JSON object, no prose.",
-               "--output-format", "json"]
-        if model:
-            cmd += ["--model", model]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if proc.returncode != 0:
-            raise RuntimeError(f"claude cli rc={proc.returncode}: {proc.stderr[:200]}")
-        env = json.loads(proc.stdout)
-        if env.get("is_error"):
-            raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:200]}")
-        return str(env.get("result", ""))
-
-    def _api(prompt):
-        import anthropic
-        client = anthropic.Anthropic()
-        resp = client.messages.create(model=model, max_tokens=max_tokens,
-                                       messages=[{"role": "user", "content": prompt}])
-        return next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
-
-    return _cli if backend == "cli" else _api
+    from homing_trade.llm_text import text_completion_fn
+    return text_completion_fn(
+        getattr(cfg, "reflection_backend", "cli"),
+        getattr(cfg, "reflection_model", "") or cfg.llm_model,
+        timeout=getattr(cfg, "reflection_cli_timeout", 180),
+        max_tokens=getattr(cfg, "reflection_max_tokens", 800))
