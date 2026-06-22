@@ -17,18 +17,22 @@ def _write_status(path, state, restarts, last_error, ts):
 
 
 def run_daemon(cfg=CONFIG, *, notifier=None, status_path=None, run_engine=None,
-               max_restarts=None, sleeper=None, now_fn=None):
+               max_restarts=None, sleeper=None, now_fn=None, stop_event=None):
     notifier = notifier or build_notifier(cfg)
     status_path = status_path or cfg.daemon_status_path
     now_fn = now_fn or (lambda: int(time.time() * 1000))
 
     # SIGINT/SIGTERM set this event; the engine checks it and sleeps on it, so a signal
     # stops the trading loop promptly instead of being ignored (which used to orphan it).
-    stop_event = threading.Event()
+    # A caller may inject a shared Event (also lets tests drive the stop deterministically).
+    stop_event = stop_event if stop_event is not None else threading.Event()
     run_engine = run_engine or (lambda: engine_run(
         cfg, notifier=notifier, should_stop=stop_event.is_set,
         sleeper=lambda secs: stop_event.wait(secs)))
-    sleeper = sleeper or time.sleep  # supervisor restart-backoff sleep
+    # Supervisor restart-backoff sleep — defaults to the stop_event wait so a SIGTERM/SIGINT
+    # arriving DURING the backoff window stops the daemon promptly instead of blocking for the
+    # full backoff (which a plain time.sleep would); the loop re-checks stop_event right after.
+    sleeper = sleeper or stop_event.wait
 
     def _handler(signum, frame):
         stop_event.set()
