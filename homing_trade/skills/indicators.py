@@ -51,3 +51,100 @@ def bollinger(values, period=20, num_std=2.0):
     var = sum((v - mid) ** 2 for v in window) / period
     sd = var ** 0.5
     return mid, mid + num_std * sd, mid - num_std * sd
+
+
+# --- regime detection (used to tag decisions with their market context) ---
+
+def _wilder_smooth(seq, period):
+    """Wilder's running sum smoothing: first value = sum of first `period`, then
+    sm = sm - sm/period + x. Returns the smoothed series (len = len(seq)-period+1)."""
+    if len(seq) < period:
+        return []
+    sm = sum(seq[:period])
+    out = [sm]
+    for v in seq[period:]:
+        sm = sm - sm / period + v
+        out.append(sm)
+    return out
+
+
+def adx(candles, period: int = 14):
+    """Wilder's ADX (trend strength, 0..100) over OHLC candles, or None if too short."""
+    if len(candles) < 2 * period + 1:
+        return None
+    highs = [c.high for c in candles]
+    lows = [c.low for c in candles]
+    closes = [c.close for c in candles]
+    trs, plus_dm, minus_dm = [], [], []
+    for i in range(1, len(candles)):
+        up = highs[i] - highs[i - 1]
+        down = lows[i - 1] - lows[i]
+        plus_dm.append(up if (up > down and up > 0) else 0.0)
+        minus_dm.append(down if (down > up and down > 0) else 0.0)
+        trs.append(max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1])))
+    atr_s = _wilder_smooth(trs, period)
+    pdm_s = _wilder_smooth(plus_dm, period)
+    mdm_s = _wilder_smooth(minus_dm, period)
+    dxs = []
+    for atr_v, pdm_v, mdm_v in zip(atr_s, pdm_s, mdm_s):
+        if atr_v == 0:
+            dxs.append(0.0)
+            continue
+        pdi = 100 * pdm_v / atr_v
+        mdi = 100 * mdm_v / atr_v
+        denom = pdi + mdi
+        dxs.append(100 * abs(pdi - mdi) / denom if denom != 0 else 0.0)
+    if len(dxs) < period:
+        return None
+    adx_v = sum(dxs[:period]) / period
+    for dx in dxs[period:]:
+        adx_v = (adx_v * (period - 1) + dx) / period
+    return adx_v
+
+
+def ema_slope(values, period: int = 20, lookback: int = 5):
+    """Fractional change of an EMA over the last `lookback` bars (>0 up, <0 down), or None."""
+    if len(values) < period + lookback:
+        return None
+    now = ema(values, period)
+    past = ema(values[:-lookback], period)
+    if now is None or past is None or past == 0:
+        return None
+    return (now - past) / abs(past)
+
+
+def realized_vol(values, window: int = 20):
+    """Sample stddev of the last `window` simple returns, or None if too short."""
+    if len(values) < window + 1:
+        return None
+    rets = []
+    for i in range(len(values) - window, len(values)):
+        prev = values[i - 1]
+        if prev != 0:
+            rets.append((values[i] - prev) / prev)
+    if len(rets) < 2:
+        return None
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    return var ** 0.5
+
+
+def classify_regime(candles, *, period: int = 14, trend: float = 25.0, chop: float = 20.0,
+                    slope_period: int = 20, vol_window: int = 20) -> dict:
+    """Tag the current market context: regime label + the ADX / EMA-slope / realized-vol it
+    was derived from. regime ∈ {trend_up, trend_down, chop, transition, unknown}."""
+    closes = [c.close for c in candles]
+    a = adx(candles, period)
+    slope = ema_slope(closes, slope_period)
+    vol = realized_vol(closes, vol_window)
+    if a is None:
+        regime = "unknown"
+    elif a >= trend:
+        # Strong trend; use the EMA slope for direction. If slope is undetermined
+        # (too few bars), don't guess a direction — call it a transition.
+        regime = "transition" if slope is None else ("trend_up" if slope > 0 else "trend_down")
+    elif a <= chop:
+        regime = "chop"
+    else:
+        regime = "transition"
+    return {"regime": regime, "adx": a, "ema_slope": slope, "realized_vol": vol}
