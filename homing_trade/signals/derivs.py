@@ -10,9 +10,9 @@ Funding is a positioning gauge: strongly POSITIVE funding => longs crowded/payin
 caution on fresh longs); strongly NEGATIVE => shorts crowded. It is confluence/contra context,
 never a standalone trigger.
 """
-import time
-
 import requests
+
+from homing_trade.signals.cache import cached_signal
 
 SOURCE = "derivs"
 BINANCE_PREMIUM_URL = "https://fapi.binance.com/fapi/v1/premiumIndex"
@@ -80,13 +80,5 @@ def get_derivs(repo, symbol, *, fetcher=None, now=None, max_age_sec=DEFAULT_MAX_
     """Cache-aware derivatives snapshot for `symbol`. Returns the reading dict or None. Serves a
     cached value within `max_age_sec`; else refetches + caches; on fetch failure returns the stale
     cached value (or None). Reads/writes signal_cache(source='derivs', key=symbol). Epoch MS."""
-    now = int(now if now is not None else time.time() * 1000)
-    cached = repo.get_signal(SOURCE, symbol) if hasattr(repo, "get_signal") else None
-    if cached and (now - cached["fetched_at"]) < max_age_sec * 1000:
-        return cached["value"]
-    fresh = fetch_derivs(symbol, fetcher=fetcher)
-    if fresh is None:
-        return cached["value"] if cached else None
-    if hasattr(repo, "upsert_signal"):
-        repo.upsert_signal(SOURCE, symbol, fresh["ts"], fresh, now)
-    return fresh
+    return cached_signal(repo, SOURCE, symbol, lambda: fetch_derivs(symbol, fetcher=fetcher),
+                         ts_fn=lambda v: v["ts"], now=now, max_age_sec=max_age_sec)

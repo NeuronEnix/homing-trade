@@ -59,6 +59,8 @@
       <tr><th>regime</th><th>trades</th><th>win%</th><th>total pnl</th><th>avg</th></tr></thead><tbody></tbody></table></div>
     <div class="card"><h3>by exit reason</h3><table id="exits"><thead>
       <tr><th>reason</th><th>trades</th><th>total pnl</th><th>avg</th></tr></thead><tbody></tbody></table></div>
+    <div class="card"><h3>research signals <small class="mut">— external feed cache freshness</small></h3>
+      <div id="signals" class="logwrap" style="max-height:160px"></div></div>
   </div>
   <div><h2>proposal queue <small class="mut">— the AI's suggestions; nothing applies until you approve</small></h2>
     <div class="card"><div id="proposals" class="logwrap" style="max-height:300px"></div></div></div>
@@ -73,6 +75,7 @@
 <script>
 const $=s=>document.querySelector(s);
 const fmt=n=>n==null?'—':Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
+const ageStr=s=>s==null?'—':(s<90?Math.round(s)+'s':s<5400?Math.round(s/60)+'m':Math.round(s/3600)+'h')+' ago';
 const usd=n=>n==null?'—':'$'+Number(n).toFixed(n>=1?2:4);
 const tm=ts=>new Date(ts).toLocaleTimeString();
 // Escape model-authored / free text before it goes into innerHTML. The AI's rationale, playbook
@@ -107,6 +110,10 @@ async function refresh(){
       `<tr><td>${tm(d.ts)}</td><td>${esc(d.strategy)}</td><td>${esc(d.action)}</td><td class="mut">${esc((d.reason||'').slice(0,90))}</td></tr>`).join('');
     $('#brain').innerHTML=(s.brain_log||[]).map(brainRow).join('')||'<div class="mut">no AI responses yet</div>';
     $('#proposals').innerHTML=(s.proposals||[]).map(propRow).join('')||'<div class="mut">no proposals yet</div>';
+    $('#signals').innerHTML=(s.signals||[]).map(sg=>
+      `<div class="kv"><span class="b">${esc(sg.source)}</span> <span class="mut">${esc(String(sg.key))}</span>`
+      +`<span class="${sg.stale?'dn':'up'}">${ageStr(sg.age_sec)}</span></div>`).join('')
+      ||'<div class="mut">no external signals cached yet</div>';
     const rb=s.regime_breakdown||{};
     $('#regimes').querySelector('tbody').innerHTML=Object.keys(rb).map(k=>{const r=rb[k];
       return `<tr><td>${k}</td><td>${r.trades}</td><td>${fmt(r.win_rate*100)}%</td>

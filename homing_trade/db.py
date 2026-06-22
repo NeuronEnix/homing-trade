@@ -549,6 +549,13 @@ class Database:
         return {"source": row["source"], "key": row["key"], "ts": row["ts"],
                 "value": json.loads(row["value_json"]), "fetched_at": row["fetched_at"]}
 
+    def all_signals(self) -> list:
+        """Every cached signal row -> [{source, key, ts, value, fetched_at}], newest fetch first
+        (for cache observability / the signal-status panel)."""
+        rows = self.conn.execute("SELECT * FROM signal_cache ORDER BY fetched_at DESC").fetchall()
+        return [{"source": r["source"], "key": r["key"], "ts": r["ts"],
+                 "value": json.loads(r["value_json"]), "fetched_at": r["fetched_at"]} for r in rows]
+
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
         return row["value"] if row else None
