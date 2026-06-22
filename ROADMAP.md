@@ -45,7 +45,7 @@ Progress: 8/10 _(v2–v6 schema; decision provenance + regime/vol tagging + risk
 ## Phase 3 — UI visibility, full management, and always-on
 Goal: a dashboard that shows per-strategy & per-AI leaderboard + the brain-log (saw/predicted/why) + a proposal/approval queue + every control, and a supervisor that survives restarts.
 
-- [ ] Per-strategy & per-AI leaderboard in `web.build_state()`: balance, equity curve, win rate, profit factor, max drawdown, open position, last action — sourced from the repository, not raw queries.
+- [x] Per-strategy & per-AI leaderboard in `web.build_state()`: balance, equity curve, win rate, profit factor, max drawdown, open position, last action — sourced from the repository, not raw queries. _(build_state enriches each item via read-only SelfQuery.leaderboard — rank/trades/win_rate/profit_factor/max_drawdown/expectancy/sharpe/realized_pnl/last_action + a 40-point equity_curve; list sorted by rank; dashboard renders a metrics grid + SVG equity sparkline per card; profit_factor inf→null JSON-safe)_
 - [ ] Brain-log panel: render `llm_responses` (observation / prediction / rationale / confidence / next_check_in_sec / error) per AI from `recent_llm_responses`.
 - [ ] Per-regime and per-variant breakdown panel reading the Phase-2 `trade_outcomes`/`regimes` tables.
 - [ ] Proposal/approval queue UI (reads Phase-4 `proposals` table): list pending param/prompt/playbook proposals with Approve / Reject buttons posting to a new `/api/proposal` endpoint (mirror the existing `/api/control` + `/api/close` pattern in `web.py`).
@@ -55,7 +55,7 @@ Goal: a dashboard that shows per-strategy & per-AI leaderboard + the brain-log (
 - [ ] Wire `comms.read` (bot-token inbound) so approvals can also arrive from Discord, not only the web UI (depends on the Discord bot token — see API shopping list).
 - [ ] Tests: extend `test_web.py` for the new endpoints + approval queue; `test_daemon.py` for restart/backoff.
 
-Progress: 0/9
+Progress: 1/9 _(leaderboard live in build_state + dashboard, read-only via SelfQuery)_
 
 ---
 
