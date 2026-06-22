@@ -236,11 +236,14 @@ class Database:
             status=row["status"],
         )
 
-    def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts) -> None:
+    def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts,
+                     *, decision_price=None, slippage=None) -> None:
         self.conn.execute(
-            """INSERT INTO trades(strategy, position_id, side, action, price, size, fee, pnl, ts)
-               VALUES(?,?,?,?,?,?,?,?,?)""",
-            (strategy, position_id, side, action, price, size, fee, pnl, ts),
+            """INSERT INTO trades(strategy, position_id, side, action, price, size, fee, pnl, ts,
+                                  decision_price, slippage)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (strategy, position_id, side, action, price, size, fee, pnl, ts,
+             decision_price, slippage),
         )
         self.conn.commit()
 

@@ -141,6 +141,16 @@ def test_migration_v2_adds_columns_and_risk_events(tmp_path):
     assert "risk_events" in tables
 
 
+def test_record_trade_stores_decision_price_and_slippage(tmp_path):
+    db = make_db(tmp_path)
+    db.ensure_strategy("ma_trend", 5000.0)
+    db.record_trade("ma_trend", 1, "LONG", "OPEN", 100.05, 1.0, 0.1, -0.1, 1000,
+                    decision_price=100.0, slippage=0.05)
+    row = db.conn.execute(
+        "SELECT decision_price, slippage FROM trades ORDER BY id DESC LIMIT 1").fetchone()
+    assert row["decision_price"] == 100.0 and round(row["slippage"], 4) == 0.05
+
+
 def test_risk_events_roundtrip(tmp_path):
     db = make_db(tmp_path)
     db.record_risk_event(1000, "ma_trend", "veto", "daily notional cap", 1234.5)

@@ -38,8 +38,9 @@ class Repository(Ledger):
     def get_open_position(self, name):
         return self.db.get_open_position(name)
 
-    def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts):
-        return self.db.record_trade(strategy, position_id, side, action, price, size, fee, pnl, ts)
+    def record_trade(self, *args, **kwargs):
+        # Passthrough so decision_price/slippage kwargs reach Database.
+        return self.db.record_trade(*args, **kwargs)
 
     def record_equity(self, strategy, equity, ts):
         return self.db.record_equity(strategy, equity, ts)
