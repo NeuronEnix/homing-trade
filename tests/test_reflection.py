@@ -1,0 +1,161 @@
+"""The primary learn->correct loop: batching, embargo, mechanical scoring, human-gated output."""
+import json
+from homing_trade.repository import Repository
+from homing_trade.reflection import ReflectionEngine
+
+
+def seed_outcomes(repo, strategy="ma", n=6, base_ts=1000, step=1000):
+    """n completed round-trips (OPEN+CLOSE), alternating win/loss, then rebuild outcomes."""
+    repo.ensure_strategy(strategy, 5000.0)
+    for i in range(n):
+        pid = i + 1
+        ot = base_ts + i * step
+        ct = ot + step // 2
+        win = i % 2 == 0
+        exit_px = 110.0 if win else 95.0
+        pnl = 9.9 if win else -5.1
+        repo.record_trade(strategy, pid, "LONG", "OPEN", 100.0, 1, 0.1, -0.1, ot,
+                          regime_at_entry="trend_up")
+        repo.record_trade(strategy, pid, "LONG", "CLOSE", exit_px, 1, 0.1, pnl, ct,
+                          exit_reason="signal")
+    repo.rebuild_trade_outcomes()
+
+
+def fixed_llm(payload):
+    """A deterministic 'model' that returns a lesson + a rule, wrapped in prose+markdown."""
+    def _fn(prompt):
+        return "Here is my review.\n```json\n" + json.dumps(payload) + "\n```\nThanks."
+    return _fn
+
+
+def test_run_once_writes_reflection_and_proposal(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "stops too tight in chop",
+                                            "rules": ["skip chop", "trend only"]}),
+                           min_trades=3)
+    out = eng.run_once("ma", now_ms=100000)
+    assert out is not None and out["n_trades"] == 6
+    # reflection persisted with the batch + lesson
+    refl = repo.recent_reflections("ma")[0]
+    assert refl["lesson"] == "stops too tight in chop" and refl["kind"] == "periodic"
+    assert refl["batch_to_ts"] == 100000 and json.loads(refl["trade_ids_json"])
+    # a human-gated playbook proposal was filed, linked back to the reflection
+    props = repo.pending_proposals("ma")
+    assert len(props) == 1 and props[0]["kind"] == "playbook"
+    payload = json.loads(props[0]["payload_json"])
+    assert payload["rules"] == ["skip chop", "trend only"] and payload["version"] == out["new_version"]
+    assert props[0]["source_reflection_id"] == out["reflection_id"]
+    assert props[0]["status"] == "pending"             # nothing applied; awaits approval
+    assert repo.latest_playbook("ma") is None          # NOT published by reflection
+    repo.close()
+
+
+def test_min_trades_gate(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=2)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "x", "rules": ["y"]}), min_trades=5)
+    assert eng.run_once("ma", now_ms=100000) is None    # too few new outcomes
+    assert repo.recent_reflections("ma") == [] and repo.pending_proposals() == []
+    repo.close()
+
+
+def test_watermark_skips_already_reflected_trades(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "a", "rules": ["b"]}), min_trades=3)
+    assert eng.run_once("ma", now_ms=100000) is not None
+    # second pass: no NEW outcomes since the last reflection's batch_to_ts -> skip
+    assert eng.run_once("ma", now_ms=200000) is None
+    assert len(repo.recent_reflections("ma")) == 1
+    repo.close()
+
+
+def test_embargo_hides_unrealized_outcomes(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6, base_ts=10000, step=2000)   # closes land well after now_ms below
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "x", "rules": ["y"]}), min_trades=1)
+    # now_ms before any close realizes -> embargo hides them all -> nothing to reflect on
+    assert eng.run_once("ma", now_ms=5000) is None
+    repo.close()
+
+
+def test_no_model_is_noop(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    assert ReflectionEngine(repo, None, min_trades=1).run_once("ma", now_ms=100000) is None
+    repo.close()
+
+
+def test_model_error_never_crashes(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    def boom(_prompt):
+        raise RuntimeError("model down")
+    eng = ReflectionEngine(repo, boom, min_trades=1)
+    assert eng.run_once("ma", now_ms=100000) is None     # swallowed
+    assert repo.recent_reflections("ma") == [] and repo.pending_proposals() == []
+    repo.close()
+
+
+def test_unparseable_response_is_skipped(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    eng = ReflectionEngine(repo, lambda p: "no json here", min_trades=1)
+    assert eng.run_once("ma", now_ms=100000) is None
+    assert repo.recent_reflections("ma") == []
+    repo.close()
+
+
+def test_empty_rules_records_reflection_but_no_proposal(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "no change warranted", "rules": []}),
+                           min_trades=1)
+    out = eng.run_once("ma", now_ms=100000)
+    assert out is not None and out["proposal_id"] is None and out["new_version"] is None
+    assert repo.recent_reflections("ma")[0]["lesson"] == "no change warranted"
+    assert repo.pending_proposals() == []                # a no-op lesson proposes nothing
+    repo.close()
+
+
+def test_valid_json_non_dict_response_is_skipped(tmp_path):
+    # The model returns valid JSON that isn't an object (a bare list of rules). Must not crash
+    # the loop on .get(); must write nothing.
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    eng = ReflectionEngine(repo, lambda p: '["skip chop", "trend only"]', min_trades=1)
+    assert eng.run_once("ma", now_ms=100000) is None
+    assert repo.recent_reflections("ma") == [] and repo.pending_proposals() == []
+    repo.close()
+
+
+def test_protected_key_in_rule_is_dropped_not_crashed(tmp_path):
+    # A rule that is an OBJECT carrying a protected field must not reach create_proposal (which
+    # would raise on the protected key and orphan the reflection / crash the loop). Non-string
+    # rules are dropped; legit string rules survive.
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    eng = ReflectionEngine(repo, fixed_llm({"lesson": "tighten in chop",
+                                            "rules": ["skip chop", {"leverage": 3}]}),
+                           min_trades=1)
+    out = eng.run_once("ma", now_ms=100000)
+    assert out is not None                                  # no crash
+    props = repo.pending_proposals("ma")
+    assert len(props) == 1
+    assert json.loads(props[0]["payload_json"])["rules"] == ["skip chop"]  # object rule dropped
+    repo.close()
+
+
+def test_prompt_presents_mechanical_metrics_and_does_not_self_grade(tmp_path):
+    repo = Repository.open(str(tmp_path / "r.db"))
+    seed_outcomes(repo, n=6)
+    captured = {}
+    def capture(prompt):
+        captured["p"] = prompt
+        return json.dumps({"lesson": "x", "rules": []})
+    ReflectionEngine(repo, capture, min_trades=1).run_once("ma", now_ms=100000)
+    p = captured["p"]
+    assert "directional_accuracy" in p and "by_regime" in p
+    assert "do NOT re-grade" in p          # the model is told the scoring is mechanical
+    repo.close()
