@@ -20,6 +20,8 @@ from homing_trade.skills.bollinger import BollingerRevert
 from homing_trade.skills.donchian import DonchianBreakout
 from homing_trade.skills.supertrend import Supertrend
 from homing_trade.skills.zscore_revert import ZScoreRevert
+from homing_trade.skills.vol_breakout import VolumeBreakout
+from homing_trade.skills.ttm_squeeze import TtmSqueeze
 from homing_trade.ai_traders import build_ai_traders
 from homing_trade.reflect_runner import ReflectionRunner, build_reflect_fn
 from homing_trade.research import ResearchRunner, build_research_fn
@@ -31,8 +33,10 @@ _SKILL_FACTORY = {
     "macd": MacdCross,
     "bollinger": BollingerRevert,
     "donchian": DonchianBreakout,
-    "supertrend": Supertrend,          # Phase 7 #2 candidate (registered, not yet in enabled_skills)
-    "zscore_revert": ZScoreRevert,     # Phase 7 #2 candidate (registered, not yet in enabled_skills)
+    "supertrend": Supertrend,          # Phase 7 #2 candidates (registered, not yet in enabled_skills)
+    "zscore_revert": ZScoreRevert,
+    "vol_breakout": VolumeBreakout,
+    "ttm_squeeze": TtmSqueeze,
     "rl_qlearn": RLQLearn,
     "committee": Committee,
 }
