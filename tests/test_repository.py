@@ -55,3 +55,15 @@ def test_live_loop_delegations(tmp_path):
                           [Candle(open=1, high=2, low=0.5, close=1.5, volume=10, time=60000)], "live")
     assert n == 1
     assert [t["id"] for t in repo.trades_after(0)] == [1]
+
+
+def test_candle_read_delegations(tmp_path):
+    from homing_trade.models import Candle
+    repo = make(tmp_path)
+    repo.save_candles("B-BTC_USDT", "15m", [
+        Candle(open=1, high=2, low=0.5, close=1.5, volume=10, time=60000),
+        Candle(open=1.5, high=2.5, low=1.0, close=2.0, volume=12, time=120000),
+    ], "history")
+    assert repo.get_candle_bounds("B-BTC_USDT", "15m") == (60000, 120000)
+    got = repo.get_candles_range("B-BTC_USDT", "15m", 0, 200000)
+    assert [c.time for c in got] == [60000, 120000]
