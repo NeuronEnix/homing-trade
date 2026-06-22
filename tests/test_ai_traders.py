@@ -44,7 +44,8 @@ def test_builtins_discovered_from_env_only():
 
 
 def test_generic_provider_discovered():
-    env = {"AI_GROK_IS_ENABLED": "yes", "AI_GROK_BACKEND": "api",
+    env = {"AI_PROVIDERS_WHITELIST": "GROK",
+           "AI_GROK_IS_ENABLED": "yes", "AI_GROK_BACKEND": "api",
            "AI_GROK_POLL_IN_SEC": "450", "AI_GROK_MODEL": "grok-2"}
     ts = build_ai_traders(Config(), env=env)
     assert len(ts) == 1
@@ -54,28 +55,28 @@ def test_generic_provider_discovered():
 
 
 def test_generic_provider_model_defaults_to_cfg_llm_model():
-    env = {"AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api"}
+    env = {"AI_PROVIDERS_WHITELIST": "GROK", "AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api"}
     ts = build_ai_traders(Config(llm_model="claude-test-model"), env=env)
     assert ts[0].model == "claude-test-model"
     assert ts[0].interval_sec == 3600                       # DEFAULT_POLL_SEC for an unknown name
 
 
 def test_disabled_flag_is_not_discovered():
-    env = {"AI_GROK_IS_ENABLED": "0", "AI_GROK_BACKEND": "api"}
+    env = {"AI_PROVIDERS_WHITELIST": "GROK", "AI_GROK_IS_ENABLED": "0", "AI_GROK_BACKEND": "api"}
     assert build_ai_traders(Config(), env=env) == []
 
 
 def test_unknown_backend_is_skipped_not_misrouted():
-    # openai/mistral adapters don't exist yet (Phase 5 #2); an unsupported backend must not
-    # silently route to the Anthropic API path — the provider is dropped.
-    env = {"AI_LLAMA_IS_ENABLED": "1", "AI_LLAMA_BACKEND": "ollama"}
+    # An unsupported backend must not silently route to the Anthropic API path — the provider is
+    # dropped by the BACKEND gate (whitelisted here, so the backend gate is what drops it).
+    env = {"AI_PROVIDERS_WHITELIST": "LLAMA", "AI_LLAMA_IS_ENABLED": "1", "AI_LLAMA_BACKEND": "ollama"}
     assert build_ai_traders(Config(), env=env) == []
     assert discover_providers(env) == {}
 
 
 def test_missing_backend_for_unknown_name_is_skipped():
     # A generic name with no backend declared can't be instantiated -> dropped (no default backend).
-    env = {"AI_MYSTERY_IS_ENABLED": "1"}
+    env = {"AI_PROVIDERS_WHITELIST": "MYSTERY", "AI_MYSTERY_IS_ENABLED": "1"}
     assert build_ai_traders(Config(), env=env) == []
 
 
@@ -89,7 +90,8 @@ def test_env_overrides_builtin_poll_and_model():
 
 
 def test_traders_are_sorted_by_name_deterministically():
-    env = {"AI_CLAUDE_CODE_IS_ENABLED": "1", "AI_ANTHROPIC_IS_ENABLED": "1",
+    env = {"AI_PROVIDERS_WHITELIST": "GROK",
+           "AI_CLAUDE_CODE_IS_ENABLED": "1", "AI_ANTHROPIC_IS_ENABLED": "1",
            "AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api"}
     names = [t.name for t in build_ai_traders(Config(), env=env)]
     assert names == sorted(names)
@@ -103,7 +105,8 @@ def test_discover_providers_ignores_unrelated_env():
 
 
 def test_bad_poll_value_falls_back_to_default():
-    env = {"AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api", "AI_GROK_POLL_IN_SEC": "notanumber"}
+    env = {"AI_PROVIDERS_WHITELIST": "GROK", "AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api",
+           "AI_GROK_POLL_IN_SEC": "notanumber"}
     ts = build_ai_traders(Config(), env=env)
     assert ts[0].interval_sec == 3600
 
@@ -111,7 +114,7 @@ def test_bad_poll_value_falls_back_to_default():
 def test_phase5_2_backends_now_supported():
     # The adapter registry (Phase 5 #2) added openai/mistral/llama -> they now spin up a brain.
     for backend in ("openai", "mistral", "llama"):
-        env = {"AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": backend}
+        env = {"AI_PROVIDERS_WHITELIST": "GROK", "AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": backend}
         ts = build_ai_traders(Config(), env=env)
         assert len(ts) == 1 and ts[0].backend == backend and ts[0].name == "llm_grok"
 
@@ -135,6 +138,7 @@ def test_no_env_arg_reads_config_snapshot_not_global(monkeypatch):
 def test_from_env_snapshot_drives_discovery(monkeypatch):
     # The single env->Config layer (from_env) captures AI_* and the registry discovers from it.
     from homing_trade.config import from_env, Config
+    monkeypatch.setenv("AI_PROVIDERS_WHITELIST", "GROK")
     monkeypatch.setenv("AI_GROK_IS_ENABLED", "1")
     monkeypatch.setenv("AI_GROK_BACKEND", "api")
     monkeypatch.setenv("AI_GROK_POLL_IN_SEC", "300")
@@ -142,3 +146,38 @@ def test_from_env_snapshot_drives_discovery(monkeypatch):
     assert cfg.ai_providers_env.get("AI_GROK_IS_ENABLED") == "1"
     ts = build_ai_traders(cfg)
     assert [t.name for t in ts] == ["llm_grok"] and ts[0].interval_sec == 300
+
+
+# --- Phase 5 #3: whitelist enforcement (only approved provider names spin up a wallet+brain) ---
+def test_unapproved_name_skipped_even_if_enabled_with_known_backend():
+    # The whole point of the gate: a stray AI_<NAME>_IS_ENABLED with a perfectly valid backend
+    # must NOT mint a brain unless its name is whitelisted.
+    env = {"AI_EVIL_IS_ENABLED": "1", "AI_EVIL_BACKEND": "api"}   # no whitelist
+    assert build_ai_traders(Config(), env=env) == []
+    assert discover_providers(env) == {}
+
+
+def test_whitelist_approves_extra_provider():
+    env = {"AI_PROVIDERS_WHITELIST": "GROK", "AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api"}
+    assert [t.name for t in build_ai_traders(Config(), env=env)] == ["llm_grok"]
+
+
+def test_whitelist_is_case_insensitive_and_multi():
+    env = {"AI_PROVIDERS_WHITELIST": " grok , Mixtral ",
+           "AI_GROK_IS_ENABLED": "1", "AI_GROK_BACKEND": "api",
+           "AI_MIXTRAL_IS_ENABLED": "1", "AI_MIXTRAL_BACKEND": "mistral"}
+    names = [t.name for t in build_ai_traders(Config(), env=env)]
+    assert names == ["llm_grok", "llm_mixtral"]
+
+
+def test_builtins_always_approved_without_whitelist():
+    # The two built-ins never need whitelisting — they are the always-approved seed.
+    env = {"AI_CLAUDE_CODE_IS_ENABLED": "1", "AI_ANTHROPIC_IS_ENABLED": "1"}
+    assert {t.name for t in build_ai_traders(Config(), env=env)} == {"llm_claude_code", "llm_anthropic"}
+
+
+def test_approved_names_helper():
+    from homing_trade.ai_traders import approved_names
+    assert approved_names({}) == {"CLAUDE_CODE", "ANTHROPIC"}
+    assert approved_names({"AI_PROVIDERS_WHITELIST": "grok,mixtral"}) == {
+        "CLAUDE_CODE", "ANTHROPIC", "GROK", "MIXTRAL"}
