@@ -104,6 +104,60 @@ def test_build_state_shape(tmp_path):
     assert ai["is_ai"] and ai["ai"]["observation"] == "saw chop"
 
 
+def test_build_state_leaderboard_metrics(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "lb.db"))
+    db = Database(cfg.db_path)
+    db.ensure_strategy("grid", 5000.0)
+    db.ensure_strategy("ma", 5000.0)
+    # grid: two wins (+100, +60), one loss (-40); equity dips then recovers higher
+    db.record_trade("grid", 1, "LONG", "CLOSE", 110, 1, 0.1, 100.0, 1000)
+    db.record_trade("grid", 2, "LONG", "CLOSE", 90, 1, 0.1, -40.0, 2000)
+    db.record_trade("grid", 3, "LONG", "CLOSE", 120, 1, 0.1, 60.0, 3000)
+    db.record_equity("grid", 5100.0, 1000)
+    db.record_equity("grid", 5060.0, 2000)   # dip -> drawdown
+    db.record_equity("grid", 5120.0, 3000)
+    # two decisions: an earlier HOLD then a later LONG -> last_action must pick the newest
+    db.log_decision("grid", 2000, 1999, "HOLD", 0.0, "wait", {}, taken_action="HOLD")
+    db.log_decision("grid", 3000, 2999, "LONG", 0.7, "breakout", {}, taken_action="LONG")
+    # ma: one loss, ends lower -> ranks below grid
+    db.record_trade("ma", 4, "LONG", "CLOSE", 95, 1, 0.1, -50.0, 1000)
+    db.record_equity("ma", 4950.0, 1000)
+    db.close()
+
+    class _Ctrl:
+        last_error = None
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    by = {s["name"]: s for s in st["strategies"]}
+    g = by["grid"]
+    assert g["rank"] == 1 and by["ma"]["rank"] == 2          # higher equity ranks first
+    assert st["strategies"][0]["name"] == "grid"             # list is sorted by rank
+    assert g["trades"] == 3
+    assert round(g["win_rate"], 4) == round(2 / 3, 4)
+    assert g["profit_factor"] == 160.0 / 40.0                # gross profit 160 / gross loss 40
+    assert g["max_drawdown"] > 0                             # 5100 -> 5060 dip
+    assert g["realized_pnl"] == 120.0
+    assert g["last_action"] == "LONG"                        # most recent decision's action
+    assert g["equity_curve"][-1] == 5120.0 and len(g["equity_curve"]) == 3
+
+
+def test_build_state_profit_factor_none_is_json_safe(tmp_path):
+    # A strategy with only winning trades -> profit_factor is undefined; must serialize as null.
+    cfg = Config(db_path=str(tmp_path / "pf.db"))
+    db = Database(cfg.db_path)
+    db.ensure_strategy("grid", 5000.0)
+    db.record_trade("grid", 1, "LONG", "CLOSE", 110, 1, 0.1, 50.0, 1000)  # only a win
+
+    class _Ctrl:
+        last_error = None
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    db.close()
+    g = next(s for s in st["strategies"] if s["name"] == "grid")
+    assert g["profit_factor"] is None
+    json.dumps(st)                                           # must not raise (no inf/nan)
+
+
 # --- HTTP smoke ---
 def test_http_server_serves_state(tmp_path):
     cfg = Config(db_path=str(tmp_path / "h.db"), web_port=0)

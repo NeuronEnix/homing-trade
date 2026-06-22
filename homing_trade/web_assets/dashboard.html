@@ -27,6 +27,8 @@
   .ai .tag{background:rgba(210,153,34,.15);color:var(--yel)}
   .pos{margin-top:8px;padding:8px;border:1px dashed var(--bd);border-radius:8px;font-size:13px}
   .kv{display:flex;justify-content:space-between} .b{font-weight:700}
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:1px 12px;margin-top:8px;font-size:12px}
+  .spark{display:block;margin:8px 0 2px} .rank{color:var(--mut);font-weight:700;margin-right:6px}
   .reason{margin-top:8px;font-size:12px;color:var(--mut);white-space:pre-wrap;max-height:150px;overflow:auto}
   .reason b{color:var(--fg)}
   .err{color:var(--red);font-weight:700}
@@ -75,6 +77,14 @@ async function refresh(){
       `<tr><td>${tm(d.ts)}</td><td>${d.strategy}</td><td>${d.action}</td><td class="mut">${(d.reason||'').slice(0,90)}</td></tr>`).join('');
   }catch(e){$('#err').textContent='UI fetch failed: '+e;}
 }
+function spark(arr){
+  if(!arr||arr.length<2) return '';
+  const w=140,h=30,mn=Math.min(...arr),mx=Math.max(...arr),rng=(mx-mn)||1;
+  const pts=arr.map((v,i)=>`${(i/(arr.length-1)*w).toFixed(1)},${(h-(v-mn)/rng*h).toFixed(1)}`).join(' ');
+  const up=arr[arr.length-1]>=arr[0];
+  return `<svg class="spark" width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${up?'var(--grn)':'var(--red)'}" stroke-width="1.5"/></svg>`;
+}
 function card(x){
   const pnl=x.pnl_pct>=0?'up':'dn';
   let pos=x.position?`<div class="pos"><div class="kv b"><span>${x.position.side} ${x.position.leverage}×</span>
@@ -90,10 +100,18 @@ function card(x){
       ${x.ai.prediction?`\n<b>predicts:</b> ${x.ai.prediction}`:''}
       ${x.ai.rationale?`\n<b>why:</b> ${x.ai.rationale}`:''}</div>`;
   }
-  return `<div class="card ${x.is_ai?'ai':''}"><h3><span>${x.name} ${x.is_ai?'<span class="tag">AI</span>':'<span class="tag">algo</span>'}</span>
+  const metrics=`<div class="metrics">
+    <div class="kv"><span class="mut">trades</span><span>${x.trades}</span></div>
+    <div class="kv"><span class="mut">win rate</span><span>${x.trades?fmt(x.win_rate*100)+'%':'—'}</span></div>
+    <div class="kv"><span class="mut">profit factor</span><span>${x.profit_factor==null?'—':fmt(x.profit_factor)}</span></div>
+    <div class="kv"><span class="mut">max DD</span><span class="${x.max_drawdown>0?'dn':'mut'}">${fmt(x.max_drawdown)}</span></div>
+    <div class="kv"><span class="mut">expectancy</span><span class="${x.expectancy>=0?'up':'dn'}">${fmt(x.expectancy)}</span></div>
+    <div class="kv"><span class="mut">last action</span><span>${x.last_action||'—'}</span></div></div>`;
+  return `<div class="card ${x.is_ai?'ai':''}"><h3><span>${x.rank?`<span class="rank">#${x.rank}</span>`:''}${x.name} ${x.is_ai?'<span class="tag">AI</span>':'<span class="tag">algo</span>'}</span>
     <span class="${pnl}">${x.pnl_pct>=0?'+':''}${fmt(x.pnl_pct)}%</span></h3>
     <div class="kv"><span class="mut">equity</span><span class="b">₹${fmt(x.equity)}</span></div>
-    <div class="kv"><span class="mut">balance</span><span>₹${fmt(x.balance)}</span></div>${pos}${ai}</div>`;
+    <div class="kv"><span class="mut">balance</span><span>₹${fmt(x.balance)}</span></div>
+    ${spark(x.equity_curve)}${metrics}${pos}${ai}</div>`;
 }
 async function prices(){
   try{
