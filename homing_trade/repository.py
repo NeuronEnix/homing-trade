@@ -130,6 +130,9 @@ class Repository(Ledger):
     def trade_outcomes(self, strategy=None, as_of=None) -> list:
         return self.db.trade_outcomes(strategy, as_of)
 
+    def outcomes_with_confidence(self, strategy=None, as_of=None) -> list:
+        return self.db.outcomes_with_confidence(strategy, as_of)
+
     # --- Phase-4 reflections + playbooks ---
     def record_reflection(self, *args, **kwargs):
         return self.db.record_reflection(*args, **kwargs)

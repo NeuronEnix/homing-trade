@@ -729,6 +729,25 @@ class Database:
         q += " ORDER BY exit_ts ASC"
         return [dict(r) for r in self.conn.execute(q, params)]
 
+    def outcomes_with_confidence(self, strategy=None, as_of=None):
+        """trade_outcomes LEFT JOINed to the entry decision's confidence (via decision_id) — the
+        join the confidence-calibration report needs (confidence lives on decision_log, not on
+        the outcome). `as_of` enforces the look-ahead embargo. decision_confidence is None when
+        the outcome has no decision_id or no matching decision row (e.g. a mechanical skill)."""
+        q = ("SELECT t.*, d.confidence AS decision_confidence "
+             "FROM trade_outcomes t LEFT JOIN decision_log d ON d.decision_id = t.decision_id")
+        cond, params = [], []
+        if strategy is not None:
+            cond.append("t.strategy=?")
+            params.append(strategy)
+        if as_of is not None:
+            cond.append("t.realized_at_ts <= ?")
+            params.append(as_of)
+        if cond:
+            q += " WHERE " + " AND ".join(cond)
+        q += " ORDER BY t.exit_ts ASC"
+        return [dict(r) for r in self.conn.execute(q, params)]
+
     # --- Phase-4 learn->correct store: reflections + append-only playbooks ---------------
     def record_reflection(self, strategy, kind, ts, *, batch_from_ts=None, batch_to_ts=None,
                           trade_ids=None, metrics=None, lesson=None, new_playbook_version=None,
