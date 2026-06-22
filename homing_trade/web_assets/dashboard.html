@@ -53,6 +53,12 @@
   <div><h2>AI brain-log <small class="mut">— what each AI saw / predicted / why</small></h2>
     <div class="card"><div id="brain" class="logwrap" style="max-height:320px"></div></div></div>
   <div class="grid">
+    <div class="card"><h3>by regime <small class="mut">— completed trades</small></h3><table id="regimes"><thead>
+      <tr><th>regime</th><th>trades</th><th>win%</th><th>total pnl</th><th>avg</th></tr></thead><tbody></tbody></table></div>
+    <div class="card"><h3>by exit reason</h3><table id="exits"><thead>
+      <tr><th>reason</th><th>trades</th><th>total pnl</th><th>avg</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="grid">
     <div class="card"><h3>recent trades</h3><div class="logwrap"><table id="trades"><thead>
       <tr><th>time</th><th>strategy</th><th>act</th><th>side</th><th>price</th><th>pnl</th></tr></thead><tbody></tbody></table></div></div>
     <div class="card"><h3>decision log</h3><div class="logwrap"><table id="decisions"><thead>
@@ -79,6 +85,18 @@ async function refresh(){
     $('#decisions').querySelector('tbody').innerHTML=s.decisions.map(d=>
       `<tr><td>${tm(d.ts)}</td><td>${d.strategy}</td><td>${d.action}</td><td class="mut">${(d.reason||'').slice(0,90)}</td></tr>`).join('');
     $('#brain').innerHTML=(s.brain_log||[]).map(brainRow).join('')||'<div class="mut">no AI responses yet</div>';
+    const rb=s.regime_breakdown||{};
+    $('#regimes').querySelector('tbody').innerHTML=Object.keys(rb).map(k=>{const r=rb[k];
+      return `<tr><td>${k}</td><td>${r.trades}</td><td>${fmt(r.win_rate*100)}%</td>
+        <td class="${r.total_pnl>=0?'up':'dn'}">${fmt(r.total_pnl)}</td>
+        <td class="${r.avg_pnl>=0?'up':'dn'}">${fmt(r.avg_pnl)}</td></tr>`;}).join('')
+      ||'<tr><td colspan="5" class="mut">no completed trades yet</td></tr>';
+    const eb=s.exit_breakdown||{};
+    $('#exits').querySelector('tbody').innerHTML=Object.keys(eb).map(k=>{const e=eb[k];
+      return `<tr><td>${k}</td><td>${e.trades}</td>
+        <td class="${e.total_pnl>=0?'up':'dn'}">${fmt(e.total_pnl)}</td>
+        <td class="${e.avg_pnl>=0?'up':'dn'}">${fmt(e.avg_pnl)}</td></tr>`;}).join('')
+      ||'<tr><td colspan="4" class="mut">no completed trades yet</td></tr>';
   }catch(e){$('#err').textContent='UI fetch failed: '+e;}
 }
 function brainRow(b){

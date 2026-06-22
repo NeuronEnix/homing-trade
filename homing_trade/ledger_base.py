@@ -61,3 +61,9 @@ class Ledger(ABC):
     @abstractmethod
     def record_regime(self, pair, interval, time, regime, adx=None, ema_slope=None,
                       realized_vol=None) -> None: ...
+
+    def rebuild_trade_outcomes(self, pair=None, interval=None) -> None:
+        """Refresh the denormalized open->close outcome table (with MAE/MFE when pair/interval
+        are given). Concrete default is a no-op: backends that don't persist a `trade_outcomes`
+        table (e.g. the in-memory backtest ledger) simply skip it; the SQLite Repository
+        overrides this. Lets `engine.process_tick` call it unconditionally."""
