@@ -47,7 +47,7 @@ Goal: a dashboard that shows per-strategy & per-AI leaderboard + the brain-log (
 
 - [x] Per-strategy & per-AI leaderboard in `web.build_state()`: balance, equity curve, win rate, profit factor, max drawdown, open position, last action — sourced from the repository, not raw queries. _(build_state enriches each item via read-only SelfQuery.leaderboard — rank/trades/win_rate/profit_factor/max_drawdown/expectancy/sharpe/realized_pnl/last_action + a 40-point equity_curve; list sorted by rank; dashboard renders a metrics grid + SVG equity sparkline per card; profit_factor inf→null JSON-safe)_
 - [x] Brain-log panel: render `llm_responses` (observation / prediction / rationale / confidence / next_check_in_sec / error) per AI from `recent_llm_responses`. _(build_state returns `brain_log` — 30 most-recent responses across all AIs, newest first, trimmed to replayable fields (raw excluded); dashboard renders a scrollable panel: AI+model, time·action·confidence·next-check-in, error, and saw/predicts/why — read-only, null-safe)_
-- [ ] Per-regime and per-variant breakdown panel reading the Phase-2 `trade_outcomes`/`regimes` tables.
+- [x] Per-regime and per-variant breakdown panel reading the Phase-2 `trade_outcomes`/`regimes` tables. _(build_state returns regime_breakdown + exit_breakdown via read-only SelfQuery.regime_performance/exit_reason_breakdown; dashboard renders "by regime" (trades/win%/total+avg pnl) and "by exit reason" tables. Also wired the production trade_outcomes rebuild into process_tick (no-op on backtest ledger) — MAE/MFE now populates live. Per-variant A/B attribution deferred to Phase-7 experiments)_
 - [ ] Proposal/approval queue UI (reads Phase-4 `proposals` table): list pending param/prompt/playbook proposals with Approve / Reject buttons posting to a new `/api/proposal` endpoint (mirror the existing `/api/control` + `/api/close` pattern in `web.py`).
 - [ ] Surface all controls already in `Controller` (start/stop/pause/resume/close_trade/reset) plus a per-AI enable/disable toggle.
 - [ ] Daemon hardening: confirm `daemon.run_daemon` auto-restarts on crash with backoff (`daemon_backoff_seconds`), writes `daemon_status.json`, and the clean SIGTERM/SIGINT shutdown (already landed) is covered by `test_daemon.py`.
@@ -55,7 +55,7 @@ Goal: a dashboard that shows per-strategy & per-AI leaderboard + the brain-log (
 - [ ] Wire `comms.read` (bot-token inbound) so approvals can also arrive from Discord, not only the web UI (depends on the Discord bot token — see API shopping list).
 - [ ] Tests: extend `test_web.py` for the new endpoints + approval queue; `test_daemon.py` for restart/backoff.
 
-Progress: 2/9 _(leaderboard + AI brain-log panel live in build_state + dashboard, read-only)_
+Progress: 3/9 _(leaderboard + AI brain-log + per-regime/per-exit breakdown panels live; trade_outcomes rebuild now wired into the live engine loop)_
 
 ---
 
