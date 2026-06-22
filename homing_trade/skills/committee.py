@@ -26,6 +26,9 @@ class Committee(Strategy):
         bear = self.bear.assess(candles, position)
         risk = self.risk.assess(candles, position)
         is_long = position is not None and position.side == "LONG"
+        # Regime gate (Phase 7 #3): the engine may set _regime_threshold_scale before this call to
+        # demand stronger consensus in non-trending regimes. Defaults to 1.0 (unchanged) when unset.
+        thr = self.threshold * getattr(self, "_regime_threshold_scale", 1.0)
         ind = {"bull": bull.stance, "bear": bear.stance, "risk": risk.stance}
         if risk.stance == "BEARISH":
             action = "CLOSE" if is_long else "HOLD"
@@ -34,8 +37,9 @@ class Committee(Strategy):
         net = (bull.confidence if bull.stance == "BULLISH" else 0.0) - \
               (bear.confidence if bear.stance == "BEARISH" else 0.0)
         ind["net"] = round(net, 3)
-        if net > self.threshold and not is_long:
+        ind["threshold"] = round(thr, 3)
+        if net > thr and not is_long:
             return Signal("LONG", confidence=min(1.0, net), reason=f"bull consensus: {bull.reason}", indicators=ind)
-        if net < -self.threshold and is_long:
+        if net < -thr and is_long:
             return Signal("CLOSE", confidence=min(1.0, -net), reason=f"bear consensus: {bear.reason}", indicators=ind)
         return Signal("HOLD", reason="no consensus", indicators=ind)
