@@ -19,11 +19,16 @@ Two ways a provider is enabled, unified into one registry:
      A provider spins up as strategy `llm_<name_lower>`. If both a built-in's Config field AND its
      env flag are set, the env flag is the explicit signal and wins.
 
-A provider whose backend `LlmTrader` cannot drive (anything outside KNOWN_BACKENDS — the
-`llm_backends` adapter registry: cli/api/openai/mistral/llama) is SKIPPED rather than mis-routed;
-each adapter itself degrades to HOLD when its SDK/key is absent. The approved-name whitelist is
-Phase 5 #3. This module is the single place that maps config + env -> AI strategy instances, kept
-separate from the mechanical skills (engine) and the risk layer.
+Two gates stand between an env flag and a live brain:
+  - WHITELIST (Phase 5 #3): only APPROVED names spin up — the two built-ins are always approved;
+    any other name must be listed in the operator's AI_PROVIDERS_WHITELIST. A stray/unapproved
+    AI_<NAME>_IS_ENABLED is dropped at discovery, so it can never mint an unintended wallet+brain.
+  - BACKEND: a provider whose backend `LlmTrader` cannot drive (anything outside KNOWN_BACKENDS —
+    the `llm_backends` adapter registry: cli/api/openai/mistral/llama) is SKIPPED rather than
+    mis-routed; each adapter itself degrades to HOLD when its SDK/key is absent.
+
+This module is the single place that maps config + env -> AI strategy instances, kept separate
+from the mechanical skills (engine) and the risk layer.
 """
 import re
 
@@ -45,12 +50,27 @@ KNOWN_BACKENDS = set(BACKENDS)
 # Poll cadence for a discovered provider that declares no AI_<NAME>_POLL_IN_SEC and is not built-in.
 DEFAULT_POLL_SEC = 3600
 
+# Whitelist enforcement (Phase 5 #3): only APPROVED provider names spin up a wallet+brain. The two
+# built-ins are always approved; any other name must be explicitly approved by the operator via the
+# comma-separated AI_PROVIDERS_WHITELIST env var. An enabled-but-unapproved AI_<NAME>_IS_ENABLED is
+# skipped at discovery — a deliberate gate so a stray/unintended env flag can never mint a brain.
+WHITELIST_ENV = "AI_PROVIDERS_WHITELIST"
+
 _NAME_RE = re.compile(r"^AI_([A-Z0-9_]+)_IS_ENABLED$")
 _TRUTHY = ("1", "true", "yes", "on")
 
 
 def _truthy(v) -> bool:
     return isinstance(v, str) and v.strip().lower() in _TRUTHY
+
+
+def approved_names(env) -> set:
+    """The set of provider NAMEs allowed to spin up: the always-approved built-ins plus any names
+    in the operator's AI_PROVIDERS_WHITELIST (comma-separated, case-insensitive)."""
+    approved = set(BUILTIN_PROVIDERS)
+    raw = env.get(WHITELIST_ENV, "") or ""
+    approved |= {n.strip().upper() for n in raw.split(",") if n.strip()}
+    return approved
 
 
 def _int(v, default):
@@ -62,14 +82,18 @@ def _int(v, default):
 
 def discover_providers(env) -> dict:
     """Scan `env` for AI_<NAME>_IS_ENABLED flags; return {NAME: {backend, poll_sec_env, model_env}}
-    for each ENABLED provider whose backend is supported. Backend defaults to the built-in's for a
-    known name; an unknown name with no/unsupported backend is dropped (not yet adapter-backed)."""
+    for each ENABLED + APPROVED provider whose backend is supported. A non-whitelisted name (Phase 5
+    #3) is dropped even if enabled; backend defaults to the built-in's for a known name; an unknown
+    name with no/unsupported backend is dropped (not yet adapter-backed)."""
+    approved = approved_names(env)
     specs = {}
     for key, val in env.items():
         m = _NAME_RE.match(key)
         if not m or not _truthy(val):
             continue
         name = m.group(1)
+        if name not in approved:
+            continue                                   # enabled but not whitelisted -> skip (gate)
         builtin = BUILTIN_PROVIDERS.get(name)
         backend = (env.get(f"AI_{name}_BACKEND") or (builtin[0] if builtin else "")).strip().lower()
         if backend not in KNOWN_BACKENDS:
