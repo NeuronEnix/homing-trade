@@ -139,6 +139,17 @@ def build_state(cfg, controller):
         strategies.sort(key=lambda it: it["rank"] if it["rank"] is not None else 1e9)
         trades = repo.recent_trades(25)
         decisions = repo.recent_decisions(40)
+        # Brain-log: recent AI responses across all AIs (newest first), trimmed to the
+        # replayable fields — what it saw / predicted / why + cadence + any error. The bulky
+        # raw envelope is intentionally excluded to keep the snapshot light.
+        brain_log = [
+            {"strategy": r["strategy"], "ts": r["ts"], "backend": r["backend"],
+             "model": r["model"], "action": r["action"], "confidence": r["confidence"],
+             "observation": r["observation"], "prediction": r["prediction"],
+             "rationale": r["rationale"], "next_check_in_sec": r["next_check_in_sec"],
+             "error": r["error"]}
+            for r in repo.recent_llm_responses(None, 30)
+        ]
         return {
             "status": controller.status(),
             "last_error": controller.last_error,
@@ -146,6 +157,7 @@ def build_state(cfg, controller):
             "config": {"interval": cfg.interval, "leverage_max": cfg.leverage_max,
                        "kill_switch": cfg.max_daily_loss, "pair": cfg.pair_candles},
             "strategies": strategies, "trades": trades, "decisions": decisions,
+            "brain_log": brain_log,
         }
     finally:
         repo.close()

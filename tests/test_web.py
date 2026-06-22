@@ -141,6 +141,31 @@ def test_build_state_leaderboard_metrics(tmp_path):
     assert g["equity_curve"][-1] == 5120.0 and len(g["equity_curve"]) == 3
 
 
+def test_build_state_brain_log(tmp_path):
+    cfg = Config(db_path=str(tmp_path / "bl.db"))
+    db = Database(cfg.db_path)
+    db.ensure_strategy("llm_claude_code", 5000.0)
+    db.ensure_strategy("llm_anthropic", 5000.0)
+    db.record_llm_response("llm_claude_code", 1000, "cli", "claude-opus-4-8", "HOLD", 0.6,
+                           "saw chop", "sideways", "no edge", "{}", None, next_check_in_sec=900)
+    db.record_llm_response("llm_anthropic", 2000, "api", "claude-3", None, None,
+                           None, None, None, "{}", "rate limited")   # an error response
+    db.close()
+
+    class _Ctrl:
+        last_error = None
+        def status(self): return "running"
+    st = build_state(cfg, _Ctrl())
+    bl = st["brain_log"]
+    assert len(bl) == 2
+    assert bl[0]["strategy"] == "llm_anthropic" and bl[0]["error"] == "rate limited"  # newest first
+    cc = next(b for b in bl if b["strategy"] == "llm_claude_code")
+    assert cc["observation"] == "saw chop" and cc["prediction"] == "sideways"
+    assert cc["rationale"] == "no edge" and cc["next_check_in_sec"] == 900
+    assert "raw" not in cc                      # bulky envelope excluded
+    json.dumps(st)                              # JSON-safe
+
+
 def test_build_state_profit_factor_none_is_json_safe(tmp_path):
     # A strategy with only winning trades -> profit_factor is undefined; must serialize as null.
     cfg = Config(db_path=str(tmp_path / "pf.db"))
