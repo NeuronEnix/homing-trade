@@ -33,8 +33,9 @@ class Config:
     ai_claude_code_poll_sec: int = 3600     # how often it consults Claude (seconds)
     ai_anthropic_enabled: bool = False      # backend: Anthropic API (needs ANTHROPIC_API_KEY)
     ai_anthropic_poll_sec: int = 900
-    # Charts fed to the AI each consult (it can also request its own via requested_charts).
-    ai_timeframes: list[str] = field(default_factory=lambda: ["1m", "5m", "15m", "30m", "1h"])
+    # Bird's-eye charts fed to the AI each consult (higher timeframes for context); the AI
+    # narrows down by requesting lower timeframes (5m/1m) via requested_charts when it sees a setup.
+    ai_timeframes: list[str] = field(default_factory=lambda: ["15m", "1h", "4h"])
     ai_chart_limit: int = 150               # candles per chart
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95

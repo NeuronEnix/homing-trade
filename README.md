@@ -122,7 +122,7 @@ error is swallowed. Remove `HT_ALERT_MODE` to go back to terminal output (defaul
 ## AI traders — Claude decides entries (optional)
 
 `homing_trade/skills/llm_trader.py` lets **Claude read the 1-minute + 15-minute charts and
-decide *when* to trade** across multiple timeframes (1m/5m/15m/30m/1h by default, and it can request more — any interval up to day units, by count or ISO-UTC date range). Direction/timing only; size, leverage,
+decide *when* to trade** across multiple timeframes (15m/1h/4h bird's-eye by default, and it can request more — any interval up to day units, by count or ISO-UTC date range). Direction/timing only; size, leverage,
 and the daily risk limits stay with the engine. Degrades to HOLD on any error.
 
 There are **two independent brains** (`homing_trade/ai_traders.py`), each toggled and paced

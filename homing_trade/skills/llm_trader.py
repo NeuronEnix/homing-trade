@@ -15,7 +15,7 @@ from homing_trade.skills.base import Strategy
 from homing_trade.skills.indicators import ema, rsi
 from homing_trade.models import Candle, Signal
 
-DEFAULT_TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h")
+DEFAULT_TIMEFRAMES = ("15m", "1h", "4h")   # bird's-eye context; AI drills down on request
 
 _SCHEMA = {
     "type": "object",
@@ -48,11 +48,14 @@ _SCHEMA = {
 _SYSTEM = (
     "You are a disciplined crypto-futures trader for the BTC/USDT perpetual (INR margin; "
     "leverage and position size are handled elsewhere — decide direction and timing only). "
-    "You are given several timeframe charts under 'charts'. Default to HOLD unless there is a "
-    "clear, multi-timeframe edge: trend alignment across timeframes, a momentum extreme to fade, "
-    "or a clean breakout with expanding volatility. Avoid choppy, low-volatility, or conflicting "
-    "tapes — they bleed fees, especially at high leverage. LONG only when flat and bullish; SHORT "
-    "only when flat and bearish; CLOSE to exit an open position when the thesis is gone.\n\n"
+    "Work TOP-DOWN: the charts under 'charts' are higher timeframes for a bird's-eye view "
+    "(context/trend). Use them to judge whether a setup exists; when one does, NARROW DOWN by "
+    "requesting lower timeframes (e.g. 5m, 1m) via requested_charts to time the entry — and "
+    "shorten next_check_in_sec so you watch closely while narrowing. Default to HOLD unless "
+    "there is a clear, multi-timeframe edge: trend alignment across timeframes, a momentum "
+    "extreme to fade, or a clean breakout with expanding volatility. Avoid choppy, low-volatility, "
+    "or conflicting tapes — they bleed fees, especially at high leverage. LONG only when flat and "
+    "bullish; SHORT only when flat and bearish; CLOSE to exit an open position when the thesis is gone.\n\n"
     "Respond ONLY with the JSON schema, and be concrete:\n"
     "  observation — what you actually SEE across the charts (trend, EMAs, RSI, volatility).\n"
     "  prediction  — what you PREDICT price will do next, and over what horizon.\n"
