@@ -2,12 +2,12 @@
 import os
 import time
 from homing_trade.allocator import compute_allocations, recent_performance
-from homing_trade.config import CONFIG, effective_leverage
+from homing_trade.config import CONFIG
 from homing_trade.risk import DailyRiskGuard
 from homing_trade.repository import Repository
 from homing_trade.broker import Broker
 from homing_trade.feed import get_candles
-from homing_trade.models import Position
+from homing_trade.position_manager import PositionManager
 from homing_trade.skills.ma_trend import MaTrend
 from homing_trade.skills.rsi_revert import RsiRevert
 from homing_trade.skills.grid import Grid
@@ -49,44 +49,20 @@ def build_skills(names, cfg=None):
 
 
 def _close_position(db, broker, skill, position, exit_price, candle, now_ms, guard=None):
-    exit_fill = broker.fill_price(exit_price, position.side, is_entry=False)
-    pnl = broker.realized_pnl(position, exit_fill)
-    fee = broker.entry_fee(position.size, exit_fill)
-    balance = db.get_balance(skill.name) + pnl - fee
-    db.set_balance(skill.name, balance)
-    db.close_position(position.id)
-    db.record_trade(skill.name, position.id, position.side, "CLOSE", exit_fill,
-                    position.size, fee, pnl - fee, now_ms)
-    if guard is not None:
-        guard.record_close(pnl - fee, now_ms)
-    return balance
+    # Backward-compatible shim: the mechanics now live in PositionManager.
+    return PositionManager(db, broker, guard=guard).close(skill, position, exit_price, candle, now_ms)
 
 
 def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, guard=None):
-    lev = effective_leverage(cfg)
-    entry_fill = broker.fill_price(candle.close, side, is_entry=True)
-    size, margin = broker.position_size(
-        db.get_balance(skill.name), entry_fill, cfg.risk_pct * weight, cfg.stop_pct, lev)
-    if guard is not None:
-        ok, _reason = guard.can_open(size * entry_fill, now_ms)
-        if not ok:
-            return False  # blocked by daily risk limits / kill switch
-        guard.record_open(size * entry_fill, now_ms)
-    stop = broker.stop_price(entry_fill, side, cfg.stop_pct)
-    fee = broker.entry_fee(size, entry_fill)
-    balance = db.get_balance(skill.name) - fee
-    db.set_balance(skill.name, balance)
-    pos = Position(strategy=skill.name, side=side, entry_price=entry_fill, size=size,
-                   leverage=lev, margin=margin, stop_price=stop, opened_at=candle.time)
-    pid = db.open_position(pos)
-    db.record_trade(skill.name, pid, side, "OPEN", entry_fill, size, fee, -fee, now_ms)
-    return True
+    # Backward-compatible shim: the mechanics now live in PositionManager.
+    return PositionManager(db, broker, cfg, guard).open(skill, side, candle, now_ms, weight)
 
 
 def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is_paused=None):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
     paused = bool(is_paused and is_paused())  # when paused: manage/close existing, open nothing new
+    pm = PositionManager(db, broker, cfg, guard)
     if getattr(cfg, "allocator_enabled", False):
         perf = {s.name: recent_performance(db, s.name, cfg.allocator_lookback) for s in skills}
         weights = compute_allocations(perf)
@@ -94,16 +70,8 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         weights = {}
     for skill in skills:
         weight = weights.get(skill.name, 1.0)
-        position = db.get_open_position(skill.name)
-        # 1. risk checks on existing position
-        if position is not None:
-            if broker.hit_liquidation(position, candle):
-                _close_position(db, broker, skill, position,
-                                broker.liquidation_price(position), candle, now_ms)
-                position = None
-            elif broker.hit_stop(position, candle):
-                _close_position(db, broker, skill, position, position.stop_price, candle, now_ms)
-                position = None
+        # 1. risk checks on any existing position (stop / liquidation)
+        position = pm.manage_risk(skill, db.get_open_position(skill.name), candle, now_ms)
         # 2. strategy decision
         signal = skill.on_candle(candles, position)
         db.log_decision(skill.name, now_ms, candle.time, signal.action,
@@ -122,11 +90,11 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
                 skill._last_alerted_error = signal.error
         elif not signal.error:
             skill._last_alerted_error = None
-        # 3. act
+        # 3. act on the decision
         if signal.action in ("LONG", "SHORT") and position is None and not paused:
-            _open_position(db, broker, skill, signal.action, candle, cfg, now_ms, weight, guard)
+            pm.open(skill, signal.action, candle, now_ms, weight)
         elif signal.action == "CLOSE" and position is not None:
-            _close_position(db, broker, skill, position, candle.close, candle, now_ms, guard)
+            pm.close(skill, position, candle.close, candle, now_ms)
         # 4. equity snapshot
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
@@ -138,6 +106,7 @@ def _drain_commands(db, broker, skills, candle, commands):
     if commands is None:
         return
     now_ms = int(time.time() * 1000)
+    pm = PositionManager(db, broker)
     while True:
         try:
             cmd = commands.get_nowait()
@@ -148,7 +117,7 @@ def _drain_commands(db, broker, skills, candle, commands):
             if sk is not None:
                 pos = db.get_open_position(sk.name)
                 if pos is not None:
-                    _close_position(db, broker, sk, pos, candle.close, candle, now_ms)
+                    pm.close(sk, pos, candle.close, candle, now_ms)
 
 
 def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None,
