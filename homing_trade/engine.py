@@ -20,6 +20,7 @@ from homing_trade.skills.bollinger import BollingerRevert
 from homing_trade.skills.donchian import DonchianBreakout
 from homing_trade.ai_traders import build_ai_traders
 from homing_trade.reflect_runner import ReflectionRunner, build_reflect_fn
+from homing_trade.research import ResearchRunner, build_research_fn
 
 _SKILL_FACTORY = {
     "ma_trend": MaTrend,
@@ -253,6 +254,13 @@ class SkillRunner:
             # label the reflection with the model actually invoked (matches build_reflect_fn),
             # not a generic tag, so the audit trail names the real model.
             model=(getattr(cfg, "reflection_model", "") or cfg.llm_model or "reflection"))
+        # Candidate-strategy intake (Phase 6 #7). Gated default-OFF; when enabled it scans on a slow
+        # cadence and FILES human-gated strategy_toggle proposals (never auto-enables anything).
+        self.research = ResearchRunner(
+            ledger, build_research_fn(cfg),
+            poll_sec=getattr(cfg, "research_poll_sec", 86400),
+            max_candidates=getattr(cfg, "research_max_candidates", 3),
+            model=(getattr(cfg, "research_model", "") or cfg.llm_model or "research"))
 
     def run_tick(self, candles, *, is_paused=None, commands=None, is_disabled=None):
         candle = candles[-1]
@@ -276,6 +284,9 @@ class SkillRunner:
         # mechanical skills are deterministic), so reflecting over them avoids filing inert
         # playbook proposals for strategies that could never act on one.
         self.reflection.run(sorted(self._ai_names))
+        # Candidate-strategy research on its own (daily) cadence — no-op unless research_enabled.
+        # Self-gated + isolated; files only human-gated strategy_toggle proposals, never enables.
+        self.research.run(sorted(s.name for s in self.skills))
 
     def _emit_trade_alerts(self):
         if self.notifier is None:

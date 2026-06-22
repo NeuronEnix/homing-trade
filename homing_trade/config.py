@@ -60,6 +60,13 @@ class Config:
     reflection_model: str = ""              # defaults to llm_model when empty
     reflection_cli_timeout: int = 180
     reflection_max_tokens: int = 800
+    # Candidate-strategy intake (Phase 6 #7) — a slow research scan that FILES new algorithm ideas
+    # as human-gated strategy_toggle proposals (never auto-enables). Default OFF (consults an LLM);
+    # shares the reflection backend. Daily cadence.
+    research_enabled: bool = False
+    research_poll_sec: int = 86400
+    research_max_candidates: int = 3
+    research_model: str = ""                # defaults to llm_model when empty
     rl_alpha: float = 0.1
     rl_gamma: float = 0.95
     rl_epsilon: float = 0.1
@@ -163,6 +170,10 @@ def from_env(base=None, *, dotenv_path=".env"):
         reflection_model=_s("REFLECTION_MODEL", cfg.reflection_model),
         reflection_cli_timeout=_i("REFLECTION_CLI_TIMEOUT", cfg.reflection_cli_timeout),
         reflection_max_tokens=_i("REFLECTION_MAX_TOKENS", cfg.reflection_max_tokens),
+        research_enabled=_b("RESEARCH_IS_ENABLED", cfg.research_enabled),
+        research_poll_sec=_i("RESEARCH_POLL_IN_SEC", cfg.research_poll_sec),
+        research_max_candidates=_i("RESEARCH_MAX_CANDIDATES", cfg.research_max_candidates),
+        research_model=_s("RESEARCH_MODEL", cfg.research_model),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
