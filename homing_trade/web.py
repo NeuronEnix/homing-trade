@@ -17,6 +17,7 @@ import webbrowser
 
 from homing_trade.config import CONFIG, from_env
 from homing_trade.repository import Repository
+from homing_trade.selfquery import SelfQuery
 from homing_trade.engine import run as engine_run
 from homing_trade.feed import get_prices
 from homing_trade.notify import build_notifier
@@ -87,7 +88,18 @@ def build_state(cfg, controller):
     """Snapshot of everything the UI shows (read-only)."""
     repo = Repository.open(cfg.db_path)
     try:
+        sq = SelfQuery(repo, cfg.starting_balance)
         names = repo.strategy_names()
+        # Per-strategy performance metrics (win rate / profit factor / drawdown / sharpe /
+        # expectancy), already ranked by equity — this IS the leaderboard.
+        board = sq.leaderboard(names)
+        perf = {p["strategy"]: p for p in board}
+        rank = {p["strategy"]: i + 1 for i, p in enumerate(board)}
+        # Latest decided action per strategy (for the "last action" column). recent_decisions
+        # is newest-first, so the first row seen per strategy is its most recent.
+        last_action = {}
+        for d in repo.recent_decisions(200):
+            last_action.setdefault(d["strategy"], d["action"])
         strategies = []
         for n in names:
             bal = repo.get_balance(n)
@@ -100,9 +112,21 @@ def build_state(cfg, controller):
                             "entry": round(pos.entry_price, 2), "leverage": pos.leverage,
                             "stop": round(pos.stop_price, 2),
                             "unreal": round(equity - bal, 2)}
-            item = {"name": n, "is_ai": n.startswith("llm_"),
+            m = perf.get(n, {})
+            pf = m.get("profit_factor")
+            item = {"name": n, "is_ai": n.startswith("llm_"), "rank": rank.get(n),
                     "balance": round(bal, 2), "equity": round(equity, 2),
                     "pnl_pct": round((equity - cfg.starting_balance) / cfg.starting_balance * 100, 2),
+                    "trades": m.get("trades", 0),
+                    "win_rate": round(m.get("win_rate", 0.0), 4),
+                    "profit_factor": (round(pf, 2) if pf is not None else None),
+                    "max_drawdown": round(m.get("max_drawdown", 0.0), 2),
+                    "expectancy": round(m.get("expectancy", 0.0), 2),
+                    "sharpe": round(m.get("sharpe", 0.0), 3),
+                    "realized_pnl": round(m.get("realized_pnl", 0.0), 2),
+                    "last_action": last_action.get(n),
+                    # compact equity curve for a sparkline (last 40 snapshots)
+                    "equity_curve": [round(e, 2) for e in repo.equity_series(n)[-40:]],
                     "position": position}
             if n.startswith("llm_"):
                 lr = repo.recent_llm_responses(n, 1)
@@ -112,6 +136,7 @@ def build_state(cfg, controller):
                                   "observation": r["observation"], "prediction": r["prediction"],
                                   "rationale": r["rationale"], "error": r["error"], "ts": r["ts"]}
             strategies.append(item)
+        strategies.sort(key=lambda it: it["rank"] if it["rank"] is not None else 1e9)
         trades = repo.recent_trades(25)
         decisions = repo.recent_decisions(40)
         return {
