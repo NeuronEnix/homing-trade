@@ -168,6 +168,33 @@ MIGRATIONS = {
 }
 
 
+# ── Hierarchy of Truth ────────────────────────────────────────────────────────────────
+# Every table is in exactly one of two classes. The split is a hard governance invariant
+# for the autonomous loop — see docs/hierarchy-of-truth.md for the full rationale.
+#
+#   AUDIT_TRUTH_TABLES   — machine-written ground truth. Prices, fills, balances, equity,
+#                          mechanically-derived classifications/metrics, and guard events.
+#                          No model output may ever author or edit a row here; this is the
+#                          record a human (or the bot's own self-query) can trust absolutely.
+#   MODEL_AUTHORED_TABLES — the ONLY tables allowed to carry free model-authored text
+#                          (observation / prediction / rationale / lesson / playbook rule).
+#                          Quarantining model prose here keeps it from contaminating the
+#                          ground truth and is what makes mechanical scoring (and the
+#                          reward-hacking / Oracle-Fallacy guards) meaningful.
+#
+# Enforcement: SelfQuery touches only read methods (asserted by test_selfquery), and
+# test_hierarchy_of_truth asserts this classification stays COMPLETE (every live table is
+# classified) and DISJOINT as the schema grows. reflections/playbooks are forward
+# declarations for the Phase-4 learn->correct loop (not created yet).
+AUDIT_TRUTH_TABLES = frozenset({
+    "strategies", "wallets", "positions", "trades", "equity",
+    "candles", "state", "risk_events", "regimes", "trade_outcomes",
+})
+MODEL_AUTHORED_TABLES = frozenset({
+    "decision_log", "llm_responses", "reflections", "playbooks",
+})
+
+
 class Database:
     def __init__(self, path: str):
         if os.path.dirname(path):
@@ -585,6 +612,15 @@ class Database:
             q += " WHERE " + " AND ".join(cond)
         q += " ORDER BY exit_ts ASC"
         return [dict(r) for r in self.conn.execute(q, params)]
+
+    def table_names(self) -> set:
+        """Names of all real tables in the live DB (excludes SQLite internals). Used by the
+        Hierarchy-of-Truth check to assert every table is classified as audit-truth or
+        model-authored."""
+        rows = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        return {r["name"] for r in rows}
 
     def close(self) -> None:
         self.conn.close()
