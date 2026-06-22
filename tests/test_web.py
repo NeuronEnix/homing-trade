@@ -120,3 +120,11 @@ def test_http_server_serves_state(tmp_path):
         assert b"homing-trade" in html
     finally:
         server.shutdown()
+
+
+# --- dashboard template extracted to web_assets/ ---
+def test_dashboard_html_loaded_from_asset():
+    from homing_trade.web import DASHBOARD_HTML
+    assert len(DASHBOARD_HTML) > 1000
+    assert "<!doctype html>" in DASHBOARD_HTML.lower()
+    assert "homing-trade" in DASHBOARD_HTML and "/api/state" in DASHBOARD_HTML
