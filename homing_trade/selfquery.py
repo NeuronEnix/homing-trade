@@ -60,3 +60,42 @@ class SelfQuery:
     def decision_breakdown(self, strategy) -> dict:
         """How the strategy's decisions resolved: {taken_action: count}."""
         return self._repo.taken_action_counts(strategy)
+
+    # --- completed-trade attribution over trade_outcomes (embargo-aware via as_of) ---
+    def outcomes(self, strategy=None, as_of=None) -> list:
+        """Raw completed-trade outcome rows. `as_of` enforces the look-ahead embargo."""
+        return self._repo.trade_outcomes(strategy, as_of)
+
+    def regime_performance(self, strategy=None, as_of=None) -> dict:
+        """Per-regime-at-entry attribution: {regime: {trades, wins, win_rate, total_pnl, avg_pnl}}."""
+        agg = {}
+        for o in self._repo.trade_outcomes(strategy, as_of):
+            r = o.get("regime_at_entry") or "unknown"
+            a = agg.setdefault(r, {"trades": 0, "wins": 0, "total_pnl": 0.0})
+            a["trades"] += 1
+            a["wins"] += 1 if (o.get("realized_pnl") or 0) > 0 else 0
+            a["total_pnl"] += (o.get("realized_pnl") or 0.0)
+        for a in agg.values():
+            a["win_rate"] = a["wins"] / a["trades"] if a["trades"] else 0.0
+            a["avg_pnl"] = a["total_pnl"] / a["trades"] if a["trades"] else 0.0
+        return agg
+
+    def exit_reason_breakdown(self, strategy=None, as_of=None) -> dict:
+        """{exit_reason: {trades, total_pnl, avg_pnl}} — e.g. are stops bleeding PnL?"""
+        agg = {}
+        for o in self._repo.trade_outcomes(strategy, as_of):
+            k = o.get("exit_reason") or "unknown"
+            a = agg.setdefault(k, {"trades": 0, "total_pnl": 0.0})
+            a["trades"] += 1
+            a["total_pnl"] += (o.get("realized_pnl") or 0.0)
+        for a in agg.values():
+            a["avg_pnl"] = a["total_pnl"] / a["trades"] if a["trades"] else 0.0
+        return agg
+
+    def directional_accuracy(self, strategy=None, as_of=None) -> float:
+        """Fraction of completed trades whose directional bet was right (prediction_correct=1)."""
+        scored = [o for o in self._repo.trade_outcomes(strategy, as_of)
+                  if o.get("prediction_correct") is not None]
+        if not scored:
+            return 0.0
+        return sum(1 for o in scored if o["prediction_correct"]) / len(scored)
