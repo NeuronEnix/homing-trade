@@ -23,9 +23,33 @@ def _env(name, dotenv_path):
     return os.environ.get(name, "")
 
 
-def post(text, *, webhook_url=None, dotenv_path=".env", poster=None):
-    """Send a message to the comms channel. Returns True on success. Never raises."""
-    url = webhook_url or _env(WEBHOOK_ENV, dotenv_path)
+def _bot_post(text, token, channel_id, sender=None):
+    """Send via the bot user (REST, `Authorization: Bot <token>`) — same identity that reads
+    replies. Returns True on success, False on any error (never raises)."""
+    try:
+        if sender is None:
+            import requests
+            def sender(cid, tok, payload):
+                r = requests.post(f"https://discord.com/api/v10/channels/{cid}/messages",
+                                  headers={"Authorization": f"Bot {tok}"}, json=payload, timeout=10)
+                r.raise_for_status()
+        sender(channel_id, token, {"content": text[:1900]})
+        return True
+    except Exception:
+        return False
+
+
+def post(text, *, webhook_url=None, dotenv_path=".env", poster=None, sender=None):
+    """Send a message to the comms channel. Returns True on success. Never raises.
+
+    Prefers the BOT user (one identity for both directions) when a token + channel id are
+    configured and the caller did not pass an explicit `webhook_url`; otherwise falls back to the
+    webhook. Passing `webhook_url=` explicitly forces the webhook (back-compat for callers/tests)."""
+    if webhook_url is None:
+        token, channel_id = _env(BOT_TOKEN_ENV, dotenv_path), _env(CHANNEL_ID_ENV, dotenv_path)
+        if token and channel_id:
+            return _bot_post(text, token, channel_id, sender=sender)
+    url = webhook_url if webhook_url is not None else _env(WEBHOOK_ENV, dotenv_path)
     if not url:
         return False
     try:

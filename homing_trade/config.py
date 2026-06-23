@@ -79,6 +79,11 @@ class Config:
     allocator_lookback: int = 20
     # Reliability: auto-disable a skill after this many CONSECUTIVE on_candle crashes (ErrorBoundary).
     error_boundary_threshold: int = 3
+    # Discord inbound approvals (Phase 3 #8). Default OFF (opt-in, like the other autonomous loops):
+    # processing approve/reject replies MUTATES the proposal gate, so it must be deliberately enabled.
+    # When on AND a bot token + channel id are configured, the engine polls #comms every comms_poll_sec.
+    comms_inbound_enabled: bool = False
+    comms_poll_sec: int = 30
     # Phase 7 #3 — regime-aware portfolio gate (default OFF; when off, weights/threshold unchanged).
     regime_filter_enabled: bool = False
     regime_unfavored_weight: float = 0.5          # allocator weight x this when style mismatches regime
