@@ -17,6 +17,7 @@ this never autonomously opens a PR. An operator enabling self-mod passes `dry_ru
 injectable so the whole pipeline is unit-tested offline.
 """
 from homing_trade.provenance import Provenance
+from homing_trade.self_mod_policy import assert_no_merge_commands
 from homing_trade.self_modify import protected_violations
 
 _PROTECTED_BRANCHES = {"main", "master"}
@@ -104,14 +105,19 @@ def propose_pr(changed_paths, *, branch, title, rationale, test_runner, backtest
                 "body": body, "pr_url": None}
     if git is None or gh is None:
         raise ValueError("propose_pr(dry_run=False) needs git and gh runners")
-    # Branch + commit + push + open PR. NO merge step exists in this function, by design.
-    # Stage ONLY the validated paths (NOT `add -A`): the committed diff is then exactly the gated
-    # set, so an under-declared dirty protected file can never be smuggled into the commit.
-    git(["checkout", "-b", branch])
-    git(["add", "--", *changed_paths])
-    git(["commit", "-m", title])
-    git(["push", "-u", "origin", branch])
-    pr_url = gh(["pr", "create", "--title", title, "--body", body])
+    # Branch + commit + push, then open the PR. NO merge step exists here, by design — and that is
+    # enforced structurally, not just by convention: build the EXACT command plan first and run it
+    # through the merge-policy guard, so a future edit that appends a `git merge` / `gh pr merge` /
+    # `--auto` / `--admin` is refused before anything executes (Phase 9 #3). Stage ONLY the
+    # validated paths (NOT `add -A`): the committed diff is then exactly the gated set, so an
+    # under-declared dirty protected file can never be smuggled into the commit.
+    git_plan = [["checkout", "-b", branch], ["add", "--", *changed_paths],
+                ["commit", "-m", title], ["push", "-u", "origin", branch]]
+    gh_plan = [["pr", "create", "--title", title, "--body", body]]
+    assert_no_merge_commands(git_plan + gh_plan)
+    for cmd in git_plan:
+        git(cmd)
+    pr_url = gh(gh_plan[0])
     # Persist the reverse provenance link only for a STRUCTURED provenance (a verified DB pointer);
     # a free-text provenance has no row to link back to. A recorder failure must not pretend the PR
     # wasn't opened — it was — so surface it in the result rather than raising over a real pr_url.

@@ -10,6 +10,41 @@ from homing_trade import self_mod_proposer as smp
 from homing_trade.provenance import make_provenance
 
 
+def test_apply_runs_the_merge_policy_guard_over_its_plan(monkeypatch):
+    # Phase 9 #3: propose_pr must run the no-merge guard over the EXACT command plan before
+    # executing. If a regression appended a merge to the plan, the guard would refuse it and
+    # nothing would run. Pin that the guard is actually invoked on the apply path.
+    seen = {}
+    real = smp.assert_no_merge_commands
+    def spy(commands):
+        seen["commands"] = commands
+        return real(commands)
+    monkeypatch.setattr(smp, "assert_no_merge_commands", spy)
+    git_calls = []
+    smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/x", title="t", rationale="y",
+                   test_runner=_green, git=lambda a: git_calls.append(a), gh=lambda a: "url",
+                   dry_run=False)
+    # the guard saw the whole plan, and that plan contains no merge command (the PR-body text may
+    # mention "merge" in its safety checklist — the guard checks command verbs/flags, not prose)
+    from homing_trade.self_mod_policy import _is_merge_command
+    assert any(c[:2] == ["pr", "create"] for c in seen["commands"])
+    assert not any(_is_merge_command(c) for c in seen["commands"])
+
+
+def test_guard_runs_before_any_command_executes(monkeypatch):
+    # the "CI before merge / no auto-merge" guarantee requires the guard to refuse the plan BEFORE
+    # any side effect — a raise must leave NO branch/commit/push/PR behind.
+    def refuse(commands):
+        raise PermissionError("simulated merge in plan")
+    monkeypatch.setattr(smp, "assert_no_merge_commands", refuse)
+    git_calls, gh_calls = [], []
+    with pytest.raises(PermissionError):
+        smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/x", title="t", rationale="y",
+                       test_runner=_green, git=lambda a: git_calls.append(a),
+                       gh=lambda a: gh_calls.append(a) or "url", dry_run=False)
+    assert git_calls == [] and gh_calls == []        # nothing executed once the guard refuses
+
+
 def _green():
     return {"passed": True, "summary": "719 passed"}
 
