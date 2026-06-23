@@ -163,8 +163,23 @@ def test_cli_adapter_raises_on_error_envelope(monkeypatch):
         stdout = json.dumps({"is_error": True, "result": "boom"})
         stderr = ""
     monkeypatch.setattr(llm_backends.subprocess, "run", lambda *a, **k: _Proc())
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="boom"):
         decide("cli", _req())
+
+
+def test_cli_error_surfaces_real_field_when_result_is_empty(monkeypatch):
+    # the observed real-world case: is_error with an EMPTY result — the reason must come from
+    # api_error_status / subtype, not log a blank "claude cli error:"
+    class _Proc:
+        returncode = 0
+        stdout = json.dumps({"is_error": True, "result": "",
+                             "subtype": "error_during_execution",
+                             "api_error_status": "Overloaded (529)"})
+        stderr = ""
+    monkeypatch.setattr(llm_backends.subprocess, "run", lambda *a, **k: _Proc())
+    with pytest.raises(RuntimeError, match="Overloaded") as exc:
+        decide("cli", _req())
+    assert "claude cli error:" in str(exc.value) and str(exc.value).strip() != "claude cli error:"
 
 
 def test_estimate_usd_pricing():

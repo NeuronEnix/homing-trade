@@ -125,7 +125,13 @@ def _cli(req: BackendRequest):
         raise RuntimeError(f"claude cli rc={proc.returncode}: {proc.stderr[:300]}")
     env = json.loads(proc.stdout)
     if env.get("is_error"):
-        raise RuntimeError(f"claude cli error: {str(env.get('result', ''))[:300]}")
+        # `result` is often EMPTY on an error envelope — the real reason lives in api_error_status /
+        # subtype / terminal_reason (e.g. an API overload/rate-limit at this poll). Surface the first
+        # informative field so the logged error + Discord alert are diagnosable, not blank.
+        detail = next((str(v) for v in (env.get("result"), env.get("api_error_status"),
+                                        env.get("subtype"), env.get("terminal_reason"),
+                                        env.get("stop_reason")) if v), "no detail in envelope")
+        raise RuntimeError(f"claude cli error: {detail[:300]}")
     u = env.get("usage") or {}
     usage = _usage(req.model, u.get("input_tokens"), u.get("output_tokens"),
                    usd=env.get("total_cost_usd"))
