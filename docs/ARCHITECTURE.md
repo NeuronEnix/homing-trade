@@ -1,8 +1,9 @@
 # ARCHITECTURE — homing-trade (a map for humans)
 
 A high-level, **read-this-instead-of-the-code** overview: what each part does, where it lives, how
-it's wired, and the safety gates. Pairs with `ROADMAP.md` (the plan/state) and the design specs in
-`docs/superpowers/specs/`. Diagrams are Mermaid — they render on GitHub and in Linear.
+it's wired, and the safety gates. Pairs with `ROADMAP.md` (the plan/state), `docs/DECISIONS.md` (the
+*why* behind key choices), and the design specs in `docs/superpowers/specs/`. Diagrams are Mermaid —
+they render on GitHub and in Linear.
 
 > One-line mental model: **market data + signals → a roster of strategy "brains" decide → a gated
 > broker executes (paper by default) → everything is written to an audit-truth SQLite ledger → the
@@ -19,7 +20,7 @@ it's wired, and the safety gates. Pairs with `ROADMAP.md` (the plan/state) and t
 | **Learn → correct** | `reflection.py`, `reflect_runner.py`, `proposals.py`, `playbook_rollback.py`, `calibration.py`, `selfquery.py`, `metrics.py` | The autonomous loop: reflect over outcomes → file **proposals** (human-gated) → apply approved playbooks; confidence calibration; auto-rollback; read-only self-query + mechanical metrics. |
 | **Backtest / eval** | `backtest.py`, `backtest_job.py`, `walkforward.py`, `experiments.py`, `promotion.py`, `profit_mirage.py`, `regime_filter.py`, `replay.py` | Honest walk-forward OOS evaluation, A/B experiments + stats, the promotion gate, the profit-mirage trust cutoff, the regime gate, and the deterministic decision replay/audit tool. |
 | **Self-mod (Phase 9 — DORMANT)** | `self_modify.py`, `self_mod_proposer.py`, `self_mod_policy.py`, `provenance.py` | Safety scaffolding for the bot proposing CODE changes. **Built + tested but not wired to anything — see the safety-gates diagram.** |
-| **Surfaces / ops** | `web.py`, `comms.py`, `comms_approvals.py`, `notify.py`, `daemon.py`, `supervisor.py`, `report.py`, `research.py` | Dashboard + controls + approval queue; two-way Discord (post/read + inbound approvals); alerts; always-on daemon + OS supervisor; reporting; research ingestion. |
+| **Surfaces / ops** | `web.py`, `comms.py`, `comms_approvals.py`, `notify.py`, `trade_feed.py`, `escalation.py`, `daemon.py`, `supervisor.py`, `report.py`, `research.py` | Dashboard + controls + approval queue; two-way Discord (post/read + inbound approvals); alerts; the `#paper-trade` narration feed + the (Phase 11) escalation policy; always-on daemon + OS supervisor; reporting; research ingestion. |
 | **Config / util** | `config.py`, `dotenv.py` | The ~50-field `Config` (+ env loader); `.env`/secret + CoinDCX-key reader. |
 
 Checks run **locally** (`tools/check.sh` + the pre-push hook) — there is no CI.
@@ -92,5 +93,8 @@ flowchart TD
   learn→correct loop (human-gated), multi-AI brains, research ingestion, walk-forward eval,
   two-way Discord approvals (default-off), the replay/audit tool, per-skill crash isolation.
 - **Gated / your call:** real money (Phase 10 — arming gate built; live execution #2 needs you).
-- **Designed, not built:** human-in-the-loop live control (Phase 11), UI-native AI onboarding (Phase 12).
+- **Designed, partly built:** human-in-the-loop live control (Phase 11) — the `#paper-trade`
+  narrate-only feed + the message contract + a pure fail-safe escalation policy are live (paper, off
+  by default); the interactive `live-trade` feed + owner-auth commands come after Phase 10.
+- **Designed, not built:** UI-native AI onboarding (Phase 12).
 - **Dormant scaffolding:** self-altering CODE (Phase 9 modules exist, wired to nothing).
