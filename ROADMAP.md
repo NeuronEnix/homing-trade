@@ -149,11 +149,11 @@ Progress: 4/4 ✅ COMPLETE _(the self-modifying-codebase phase is closed. The AI
 ## Phase 10 — Real-money test-drive milestone (opt-in, kill-switched)
 Goal: after a paper track record, a tiny opt-in live run behind an explicit human gate, then gradual scale-up.
 
-- [ ] Explicit human arming gate flips `live_enabled`/`live_dry_run` in `live_broker.py`; default stays dry-run.
-- [ ] Tiny capital cap + hard `max_daily_loss` kill-switch verified live before any scale-up.
+- [x] Explicit human arming gate flips `live_enabled`/`live_dry_run` in `live_broker.py`; default stays dry-run. _(PR #82: homing_trade/arming.py — the single decision point for whether the engine may place REAL orders. resolve_mode → PAPER (default) / LIVE_DRY_RUN / LIVE (needs live_enabled AND live_dry_run is exactly False AND keys; strict-bool so None/0/"" can't read as go-live). assert_safe_to_arm refuses LIVE unless keys + trading_enabled + max_daily_loss>0 + live_capital_cap>0 all hold; LIVE unreachable without keys. select_broker returns the paper Broker for PAPER and FAILS SAFE (NotImplementedError) for any live mode — live execution isn't wired yet (#2), so flipping the flags today stops the bot loudly, never half-trades. engine.run now selects its broker via the gate (default → paper). Adversarial review SHIP — no live-broker path, default PAPER, fail-closed. 17 tests; suite 860→877. Building this arms NOTHING.)_
+- [ ] Tiny capital cap + hard `max_daily_loss` kill-switch verified live before any scale-up. _(this is the LIVE EXECUTION step — PositionManager placing/reconciling real orders via LiveBroker, capital-cap sizing enforcement, and proving the kill-switch fires against the exchange. Highest-risk; a deliberate, human-involved step — not built autonomously. live_capital_cap config field already added by #82.)_
 - [ ] Gradual scale-up only after a sustained paper + tiny-live track record.
 
-Progress: 0/3
+Progress: 1/3 _(#1 the arming GATE landed (PR #82): the gated decision + fail-closed guard, default PAPER, no live-broker path — merging it changed nothing operationally. #2 (live execution + verified-live kill-switch/cap) and #3 (scale-up) are the real-money steps and stay behind explicit human sign-off + hands-on involvement.)_
 
 ---
 
