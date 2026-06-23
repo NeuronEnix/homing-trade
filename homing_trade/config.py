@@ -77,6 +77,8 @@ class Config:
     risk_vol_threshold: float = 0.04
     allocator_enabled: bool = False
     allocator_lookback: int = 20
+    # Reliability: auto-disable a skill after this many CONSECUTIVE on_candle crashes (ErrorBoundary).
+    error_boundary_threshold: int = 3
     # Phase 7 #3 — regime-aware portfolio gate (default OFF; when off, weights/threshold unchanged).
     regime_filter_enabled: bool = False
     regime_unfavored_weight: float = 0.5          # allocator weight x this when style mismatches regime
