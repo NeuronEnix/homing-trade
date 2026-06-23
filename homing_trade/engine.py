@@ -314,6 +314,11 @@ class SkillRunner:
         # Lazy import: backtest_job -> walkforward -> backtest -> engine would otherwise cycle.
         from homing_trade.backtest_job import BacktestRunner
         self.backtest_job = BacktestRunner(ledger, cfg)
+        # Discord inbound approvals (Phase 3 #8): poll #comms for approve/reject replies and drive
+        # the same human-approval gate the web UI uses. Self-gated (no-op unless a bot token is set)
+        # and never raises into the trading loop.
+        from homing_trade.comms_approvals import CommsApprovalRunner
+        self.approvals = CommsApprovalRunner(ledger, cfg)
 
     def run_tick(self, candles, *, is_paused=None, commands=None, is_disabled=None):
         candle = candles[-1]
@@ -343,6 +348,8 @@ class SkillRunner:
         self.research.run(sorted(s.name for s in self.skills))
         # Continuous backtest job on its own (daily) cadence — no-op unless continuous_backtest_enabled.
         self.backtest_job.run()
+        # Discord inbound approvals on their own (fast) cadence — no-op unless inbound is configured.
+        self.approvals.run()
 
     def _emit_trade_alerts(self):
         if self.notifier is None:
