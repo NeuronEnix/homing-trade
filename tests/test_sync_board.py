@@ -39,13 +39,14 @@ def test_phase_statuses_on_synthetic():
 
 def test_phase_statuses_on_real_roadmap():
     s = sb.phase_statuses((ROOT / "ROADMAP.md").read_text(encoding="utf-8"))
-    # spot-check phases whose state is stable: completed -> Done (Phases 1–9 + Phase 3 are all done);
-    # the real-money / interactive phases are not started -> Todo.
+    # Assert only STABLE invariants — never a transient per-phase status (those move as work lands and
+    # made this test brittle). The exact Todo/In-Progress/Done mapping is covered by the status_for
+    # unit tests above; here we just prove the parser runs on the real file and produces valid output.
+    assert s, "no phases parsed from the real ROADMAP"
+    assert all(v in {"Todo", "In Progress", "Done"} for v in s.values()), s
+    # Phase 1 (the structural foundation) is complete and will not regress.
     assert s["Phase 1 — Structural foundation (kill the god-files, harden module boundaries)"] == "Done"
-    assert any(k.startswith("Phase 7") and v == "Done" for k, v in s.items())
-    assert any(k.startswith("Phase 3") and v == "Done" for k, v in s.items())
-    assert any(k.startswith("Phase 10") and v == "Todo" for k, v in s.items())
-    assert any(k.startswith("Phase 11") and v == "Todo" for k, v in s.items())
+    assert sum(1 for v in s.values() if v == "Done") >= 5     # the early phases are all done
 
 
 def test_plan_updates_only_changes_wrong_cards():

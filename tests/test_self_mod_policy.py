@@ -64,9 +64,7 @@ def test_ci_gate_open_only_on_passing_required_check():
 def test_ci_gate_fails_closed(checks):
     assert not pol.ci_gate_satisfied(checks)
 
-
-def test_required_check_name_matches_ci_workflow():
-    # the gate's required check must be the job name the CI workflow actually publishes
-    import pathlib
-    ci = (pathlib.Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
-    assert f"name: {pol.REQUIRED_CHECK}" in ci
+# (Checks now run locally — tools/check.sh + the pre-push hook — not via a GitHub Actions workflow,
+# so the old "REQUIRED_CHECK matches the ci.yml job name" coupling test was removed. self_mod_policy
+# remains dormant policy logic; its gate semantics will be revisited if the self-mod proposer is
+# ever activated.)

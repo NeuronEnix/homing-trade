@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Pre-push gate: run the canonical local checks before anything leaves the machine.
+# Activated repo-wide with:   git config core.hooksPath tools/hooks
+# Bypass for an emergency push with:   git push --no-verify
+exec "$(git rev-parse --show-toplevel)/tools/check.sh"
