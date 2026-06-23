@@ -371,6 +371,9 @@ PROTECTED_PROPOSAL_FIELDS = frozenset({
     # alert routing + secret/env names
     "webhook_url", "discord_webhook_env", "telegram_token_env", "telegram_chat_id_env",
     "coindcx_key_env", "coindcx_secret_env",
+    # operator notification surface — the AI must not self-propose toggling its own narration feed
+    # to the human (paper_feed_webhook_env is already covered by the "webhook" substring).
+    "paper_feed_enabled",
 })
 _PROTECTED_SUBSTRINGS = (
     "secret", "token", "password", "webhook", "api_key", "apikey",     # secrets / keys
@@ -797,7 +800,8 @@ class Database:
 
     def trades_after(self, last_id):
         rows = self.conn.execute(
-            "SELECT id, strategy, side, action, price, size, pnl FROM trades WHERE id>? ORDER BY id ASC",
+            "SELECT id, strategy, side, action, price, size, pnl, decision_id, exit_reason, "
+            "regime_at_entry FROM trades WHERE id>? ORDER BY id ASC",
             (last_id,)).fetchall()
         return [dict(r) for r in rows]
 

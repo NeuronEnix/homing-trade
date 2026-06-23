@@ -1,8 +1,10 @@
+import dataclasses
 from homing_trade.engine import SkillRunner
 from homing_trade.broker import Broker
 from homing_trade.config import Config
 from homing_trade.repository import Repository
 from homing_trade.models import Candle
+from homing_trade.trade_feed import TradeFeed
 
 
 def candles(n=40, price=100.0):
@@ -52,3 +54,20 @@ def test_emits_trade_alerts_for_new_trades_only(tmp_path):
     assert kinds == ["trade"]
     runner._emit_trade_alerts()          # no new trades -> no duplicate alert
     assert kinds == ["trade"]
+
+
+def test_paper_feed_narrates_new_trades(tmp_path):
+    # Phase 11 #1: with the paper feed enabled (and no legacy notifier), a new trade is narrated
+    # through TradeFeed exactly once with the message-contract embed.
+    cfg = _cfg(tmp_path)
+    repo = Repository.open(cfg.db_path)
+    posts = []
+    runner = SkillRunner(cfg, repo, Broker(cfg.fee, cfg.slippage))   # notifier=None
+    # swap in an enabled, offline feed (last_alert_id stays 0 from build -> the trade is fresh)
+    runner.trade_feed = TradeFeed(dataclasses.replace(cfg, paper_feed_enabled=True),
+                                  poster=lambda url, payload: posts.append(payload))
+    repo.record_trade("ma_trend", 1, "LONG", "OPEN", 100.0, 1.0, 0.1, -0.1, 1000)
+    runner._emit_trade_alerts()
+    assert len(posts) == 1 and "embeds" in posts[0]
+    runner._emit_trade_alerts()                                     # no new trade -> no duplicate
+    assert len(posts) == 1

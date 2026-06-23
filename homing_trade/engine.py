@@ -4,7 +4,7 @@ import time
 import uuid
 from homing_trade.allocator import compute_allocations, recent_performance
 from homing_trade.arming import select_broker
-from homing_trade.config import CONFIG
+from homing_trade.config import CONFIG, effective_leverage
 from homing_trade.error_boundary import ErrorBoundary
 from homing_trade.risk import DailyRiskGuard
 from homing_trade.repository import Repository
@@ -319,6 +319,17 @@ class SkillRunner:
         # and never raises into the trading loop.
         from homing_trade.comms_approvals import CommsApprovalRunner
         self.approvals = CommsApprovalRunner(ledger, cfg)
+        # Phase 11 #1: the #paper-trade narration feed. Narrate-only + default-OFF + degrade-safe
+        # (no-op unless paper_feed_enabled AND a webhook is set), so constructing it is free and it
+        # never disturbs the trading loop. Each new trade is narrated in _emit_trade_alerts.
+        from homing_trade.trade_feed import TradeFeed
+        self.trade_feed = TradeFeed(cfg)
+        # track the running regime so the feed can flag a regime flip (NOTABLE).
+        self._last_regime = None
+        # If ONLY the feed is active (no legacy notifier), still skip pre-existing trades on the
+        # first tick so we don't narrate the whole ledger history.
+        if notifier is None and self.trade_feed.enabled:
+            self.last_alert_id = ledger.max_trade_id()
 
     def run_tick(self, candles, *, is_paused=None, commands=None, is_disabled=None):
         candle = candles[-1]
@@ -352,16 +363,40 @@ class SkillRunner:
         self.approvals.run()
 
     def _emit_trade_alerts(self):
-        if self.notifier is None:
+        if self.notifier is None and not self.trade_feed.enabled:
             return
         for t in self.ledger.trades_after(self.last_alert_id):
-            msg = f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}"
-            if t["strategy"] in self._ai_names:   # show WHY for AI trades
-                why = self.ledger.latest_llm_rationale(t["strategy"])
+            why = self.ledger.latest_llm_rationale(t["strategy"]) if t["strategy"] in self._ai_names else ""
+            # Legacy Discord trade alert (unchanged behaviour).
+            if self.notifier is not None:
+                msg = f"{t['side']} {t['size']:.6f} @ {t['price']:.2f} pnl={t['pnl']:.2f}"
                 if why:
                     msg += f"\n💡 {why[:280]}"
-            self.notifier.notify("trade", f"{t['strategy']} {t['action']}", msg)
+                self.notifier.notify("trade", f"{t['strategy']} {t['action']}", msg)
+            # Phase 11 #1: narrate to the #paper-trade feed (no-op when disabled; never raises).
+            if self.trade_feed.enabled:
+                self._narrate_trade(t, why)
             self.last_alert_id = t["id"]
+
+    def _narrate_trade(self, t, why):
+        """Build the Phase-11 message contract for one trade and narrate it. Best-effort context
+        from the ledger (equity + regime flip + exit reason); the feed's escalation level is
+        informational on the paper feed (it never gates)."""
+        regime = t.get("regime_at_entry")
+        flip = bool(self._last_regime and regime and regime != self._last_regime)
+        if regime:
+            self._last_regime = regime
+        price, size = t.get("price") or 0.0, t.get("size") or 0.0
+        action = {
+            "kind": "exit" if t["action"] == "CLOSE" else "entry",
+            "strategy": t["strategy"], "symbol": self.cfg.pair_candles,
+            "side": t.get("side"), "size": size, "price": price,
+            "pnl": t.get("pnl"), "notional": abs(size * price),
+            "leverage": effective_leverage(self.cfg),
+            "exit_reason": t.get("exit_reason"), "decision_id": t.get("decision_id"),
+        }
+        ctx = {"equity": self.ledger.get_balance(t["strategy"]), "regime_flip": flip}
+        self.trade_feed.narrate(action, why, ctx)
 
     def save(self):
         """Persist any stateful skills (e.g. the RL Q-table) on shutdown."""

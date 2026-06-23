@@ -108,6 +108,19 @@ class Config:
     discord_webhook_env: str = "DISCORD_WEBHOOK_URL"
     telegram_token_env: str = "TELEGRAM_BOT_TOKEN"
     telegram_chat_id_env: str = "TELEGRAM_CHAT_ID"
+    # Phase 11 #1 — the #paper-trade narration feed (narrate-only, default OFF + degrade-safe). When
+    # enabled AND a webhook is configured, every paper trade is narrated with the message contract
+    # (what / why / risk / decision_id / level). It never asks for approval — paper just runs.
+    paper_feed_enabled: bool = False
+    paper_feed_webhook_env: str = "PAPER_TRADE_WEBHOOK_URL"
+    # Phase 11 #2 — escalation-policy thresholds (operator-tunable; the *risk* fields they reference
+    # are protected). Conservative defaults — escalate more, relax with data (spec §10).
+    esc_size_pct_of_equity: float = 0.25     # entry notional >= this fraction of equity -> escalate
+    esc_size_abs_cap: float = 0.0            # absolute notional cap -> escalate (0 = off)
+    esc_drawdown_frac: float = 0.7           # day loss >= this fraction of max_daily_loss -> escalate
+    esc_vol_spike_mult: float = 1.5          # realized_vol >= this x vol_threshold -> escalate
+    esc_loss_streak: int = 3                 # consecutive losing trades -> escalate
+    esc_novelty_k: float = 2.0               # notional > baseline_mean + k*stdev -> escalate (novelty)
     live_enabled: bool = False
     live_dry_run: bool = True
     # Phase 10 #1 arming gate: hard ceiling (USDT) on capital exposed to REAL orders. Must be > 0 to
@@ -217,6 +230,9 @@ def from_env(base=None, *, dotenv_path=".env"):
         continuous_backtest_poll_sec=_i("CONTINUOUS_BACKTEST_POLL_IN_SEC",
                                         cfg.continuous_backtest_poll_sec),
         trust_cutoff_iso=_s("TRUST_CUTOFF_ISO", cfg.trust_cutoff_iso),
+        # Phase 11 #1 — the paper-trade narration feed (narrate-only). The webhook itself is read
+        # from PAPER_TRADE_WEBHOOK_URL (paper_feed_webhook_env) inside TradeFeed.
+        paper_feed_enabled=_b("PAPER_TRADE_IS_ENABLED", cfg.paper_feed_enabled),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
