@@ -201,6 +201,22 @@ def from_env(base=None, *, dotenv_path=".env"):
         research_poll_sec=_i("RESEARCH_POLL_IN_SEC", cfg.research_poll_sec),
         research_max_candidates=_i("RESEARCH_MAX_CANDIDATES", cfg.research_max_candidates),
         research_model=_s("RESEARCH_MODEL", cfg.research_model),
+        # Portfolio gates + autonomous loops that were built (Phases 4/7, Phase 3 #8) but had no
+        # operator switch — wiring them here so they can be turned on from .env without a code edit.
+        regime_filter_enabled=_b("REGIME_FILTER_IS_ENABLED", cfg.regime_filter_enabled),
+        regime_unfavored_weight=_f("REGIME_UNFAVORED_WEIGHT", cfg.regime_unfavored_weight),
+        regime_committee_threshold_scale=_f("REGIME_COMMITTEE_THRESHOLD_SCALE",
+                                            cfg.regime_committee_threshold_scale),
+        allocator_enabled=_b("ALLOCATOR_IS_ENABLED", cfg.allocator_enabled),
+        allocator_lookback=_i("ALLOCATOR_LOOKBACK", cfg.allocator_lookback),
+        committee_threshold=_f("COMMITTEE_THRESHOLD", cfg.committee_threshold),
+        comms_inbound_enabled=_b("COMMS_INBOUND_IS_ENABLED", cfg.comms_inbound_enabled),
+        comms_poll_sec=_i("COMMS_POLL_IN_SEC", cfg.comms_poll_sec),
+        continuous_backtest_enabled=_b("CONTINUOUS_BACKTEST_IS_ENABLED",
+                                       cfg.continuous_backtest_enabled),
+        continuous_backtest_poll_sec=_i("CONTINUOUS_BACKTEST_POLL_IN_SEC",
+                                        cfg.continuous_backtest_poll_sec),
+        trust_cutoff_iso=_s("TRUST_CUTOFF_ISO", cfg.trust_cutoff_iso),
         enabled_skills=_list("HT_SKILLS", cfg.enabled_skills),
     )
 
