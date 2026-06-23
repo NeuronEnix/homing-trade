@@ -160,7 +160,7 @@ Progress: 0/3
 ## Backlog / Later (low priority)
 - [ ] Config versioning framework (`ConfigV1/V2` + migrator) — `config.py` has ~50 fields.
 - [ ] `ErrorBoundary` abstraction (per-skill error counters, auto-disable after N failures).
-- [ ] Decision/candle deterministic replay tool for trade-by-trade audit.
+- [x] Decision/candle deterministic replay tool for trade-by-trade audit. _(PR #79: homing_trade/replay.py — pure correlate() reconstructs the recorded story decision-by-decision in chronological order from the audit-truth tables (decision_log → llm thesis → fills incl. CLOSE-via-position_id → outcome + risk vetoes), joined only on exact engine-written keys, deterministic (same DB → same replay). was_blocked flags only real blocks/vetoes (not signals ignored while positioned); the strategy=None kill-switch halt surfaces as its own step (never silently dropped). CLI: python -m homing_trade.replay. Adversarial review BLOCK→SHIP; 14 tests; verified on the live 1362-decision DB. Suite 801→815)_
 - [ ] Layered memory (short/mid/long/reflection) with temporal-decay retrieval, once trade count is large.
 - [ ] Deferred algos needing new feeds/architecture: funding-rate skew (single-leg contrarian filter), rolling/anchored VWAP, CVD/order-flow (needs tick data), Ichimoku, BTC-ETH cointegration pairs (needs multi-leg positions).
 - [ ] Paid data add-ons only if budget allows: Coinglass Hobbyist ($29/mo, aggregated funding + liquidation heatmaps).
