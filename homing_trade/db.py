@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 from homing_trade.models import Candle, Position
+from homing_trade.provenance import make_provenance, SUMMARY_FIELD as PROVENANCE_SUMMARY_FIELD
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategies (
@@ -90,7 +91,7 @@ CREATE TABLE IF NOT EXISTS candles (
 # integer version; state['schema_version'] records how far a given DB has been migrated.
 # To change the schema: add the next integer key here and bump SCHEMA_VERSION — never
 # edit a released migration or renumber the existing ones.
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Each migration is a LIST of single SQL statements (no trailing ';'). _migrate() applies all
 # statements of a version PLUS its schema_version bump inside one transaction, so a failure
@@ -296,6 +297,24 @@ MIGRATIONS = {
         )""",
         "CREATE INDEX IF NOT EXISTS idx_backtest_results_strategy_ts ON backtest_results(strategy, ts)",
     ],
+    # v14: the self-modification PR provenance ledger (Phase 9 #4). One row per self-proposed
+    # code-change PR the bot surfaces, recording the REVERSE link: which `reflections`/`proposals`
+    # row motivated it, on what branch, and the resulting PR url. The forward reference lives in the
+    # PR body (provenance.py); this is the queryable back-reference so a human can ask "what did
+    # reflection #42 actually change?". Mechanically written when a PR is opened (a fact, not model
+    # prose) -> audit-truth. source_table is constrained to the two model-authored source tables.
+    14: [
+        """CREATE TABLE IF NOT EXISTS self_mod_prs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_ts INTEGER NOT NULL,
+            source_table TEXT NOT NULL CHECK(source_table IN ('reflections','proposals')),
+            source_id INTEGER NOT NULL,
+            branch TEXT NOT NULL,
+            title TEXT,
+            pr_url TEXT NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_self_mod_prs_source ON self_mod_prs(source_table, source_id)",
+    ],
 }
 
 
@@ -319,7 +338,7 @@ MIGRATIONS = {
 AUDIT_TRUTH_TABLES = frozenset({
     "strategies", "wallets", "positions", "trades", "equity",
     "candles", "state", "risk_events", "regimes", "trade_outcomes", "cost_ledger", "signal_cache",
-    "experiments", "backtest_results",
+    "experiments", "backtest_results", "self_mod_prs",
 })
 MODEL_AUTHORED_TABLES = frozenset({
     "decision_log", "llm_responses", "reflections", "playbooks", "proposals",
@@ -1186,6 +1205,44 @@ class Database:
                 raise
         finally:
             self.conn.isolation_level = prev_isolation
+
+    # --- Phase-9 #4 self-mod provenance: verified forward ref + queryable reverse link --------
+    def resolve_provenance(self, source_table, source_id):
+        """Read the motivating reflections/proposals row and build a VERIFIED Provenance for a
+        self-mod PR body. Raises ValueError on an unknown source table and LookupError if the row
+        does not exist — a self-mod PR can never claim a provenance that isn't real."""
+        prov = make_provenance(source_table, source_id)   # validates table + positive id first
+        field = PROVENANCE_SUMMARY_FIELD[source_table]
+        row = self.conn.execute(
+            f"SELECT {field} AS summary FROM {source_table} WHERE id=?", (source_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no {source_table} row #{source_id} to attribute this change to")
+        return make_provenance(source_table, source_id, row["summary"] or "")
+
+    def record_self_mod_pr(self, provenance, pr_url, *, branch, title, now_ms) -> int:
+        """Record the reverse link once a self-mod PR is opened: which reflection/proposal row
+        produced which PR. Audit-truth; written mechanically from the opened PR's facts.
+
+        Fail-closed on BOTH ends (like resolve_provenance, not just it): re-verify the source row
+        exists before inserting, so a hand-built or stale Provenance can never write a dangling
+        back-reference into the ledger. branch/title are the git/GitHub artifact's own mechanical
+        labels captured verbatim at PR-open — metadata about a created object, not model
+        reasoning/prediction/lesson — which is why this row is audit-truth (the model-authored
+        summary is deliberately NOT persisted here; only the pointer + the PR facts are)."""
+        self.resolve_provenance(provenance.table, provenance.row_id)   # raises if the row is gone
+        cur = self.conn.execute(
+            """INSERT INTO self_mod_prs(created_ts, source_table, source_id, branch, title, pr_url)
+               VALUES(?,?,?,?,?,?)""",
+            (now_ms, provenance.table, provenance.row_id, branch, title, pr_url))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def self_mod_prs_for(self, source_table, source_id):
+        """All self-mod PRs a given reflections/proposals row motivated, newest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM self_mod_prs WHERE source_table=? AND source_id=? ORDER BY id DESC",
+            (source_table, source_id))
+        return [dict(r) for r in rows]
 
     def table_names(self) -> set:
         """Names of all real tables in the live DB (excludes SQLite internals). Used by the

@@ -16,6 +16,7 @@ merges — a human does. The pipeline, in order (fail-fast, safety first):
 this never autonomously opens a PR. An operator enabling self-mod passes `dry_run=False`. git/gh are
 injectable so the whole pipeline is unit-tested offline.
 """
+from homing_trade.provenance import Provenance
 from homing_trade.self_modify import protected_violations
 
 _PROTECTED_BRANCHES = {"main", "master"}
@@ -75,12 +76,18 @@ def build_pr_body(*, rationale, provenance, backtests, test_summary, changed_pat
 
 
 def propose_pr(changed_paths, *, branch, title, rationale, test_runner, backtest_runner=None,
-               provenance=None, git=None, gh=None, dry_run=True):
+               provenance=None, git=None, gh=None, dry_run=True, link_recorder=None):
     """Gate a proposed diff and, if it passes, open it as a branch + PR (never merge). Returns a
     result dict. On a failed gate, returns early WITHOUT touching git/gh (nothing is created).
 
     git(args)->any / gh(args)->str are injected command runners. dry_run=True (default) builds the
-    plan + body but performs NO git/gh side effects."""
+    plan + body but performs NO git/gh side effects.
+
+    `provenance` may be a free string OR a `provenance.Provenance` (the verified link to the
+    reflections/proposals row that motivated the change). When it is a Provenance AND the PR is
+    actually opened (dry_run=False), `link_recorder(provenance, pr_url, branch, title)` is invoked
+    to persist the reverse link — so the trail is bidirectional. The recorder is injected (the DB's
+    `record_self_mod_pr`) to keep this pipeline offline-testable."""
     bad_branch = _reject_branch(branch)
     if bad_branch:
         return {"ok": False, "stage": "branch", "reason": bad_branch, "pr_url": None}
@@ -105,5 +112,14 @@ def propose_pr(changed_paths, *, branch, title, rationale, test_runner, backtest
     git(["commit", "-m", title])
     git(["push", "-u", "origin", branch])
     pr_url = gh(["pr", "create", "--title", title, "--body", body])
+    # Persist the reverse provenance link only for a STRUCTURED provenance (a verified DB pointer);
+    # a free-text provenance has no row to link back to. A recorder failure must not pretend the PR
+    # wasn't opened — it was — so surface it in the result rather than raising over a real pr_url.
+    linked = None
+    if link_recorder is not None and isinstance(provenance, Provenance):
+        try:
+            linked = link_recorder(provenance, pr_url, branch, title)
+        except Exception as e:
+            linked = f"link-failed: {e}"
     return {"ok": True, "dry_run": False, "stage": "proposed", "branch": branch, "title": title,
-            "body": body, "pr_url": pr_url}
+            "body": body, "pr_url": pr_url, "provenance_link": linked}
