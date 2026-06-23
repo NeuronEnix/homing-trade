@@ -138,11 +138,11 @@ Progress: 4/4 ✅ COMPLETE _(#1 board synced to the ROADMAP (PR #74) + #2 ROADMA
 Goal: the AI proposes CODE changes as branches/PRs with backtests + passing tests; a human merges. Never touches protected zones without explicit sign-off.
 
 - [ ] AI proposes code changes only as a branch + PR (via `gh`), with attached walk-forward backtest results and green tests.
-- [ ] Hard guardrail: a protected-paths denylist (risk limits, kill-switch, secrets handling, live-arming, `LiveBroker` dry-run flag) that proposals can never modify.
+- [x] Hard guardrail: a protected-paths denylist (risk limits, kill-switch, secrets handling, live-arming, `LiveBroker` dry-run flag) that proposals can never modify. _(PR #75: homing_trade/self_modify.py — assert_safe_to_modify(changed_paths) refuses any self-mod diff touching the safety perimeter. Protects whole files (no "edit just the safe part"): risk.py/live_broker.py/config.py AND the enforcers (advisor/broker/position_manager/engine — so a caller-edit can't neuter a limit) + the guards/schema (db.py/proposals.py) + secrets (comms/dotenv/.env*/*.key/*secret*) + .github/ (its own CI) + self_modify.py itself. Fail-CLOSED + bypass-resistant: posixpath.normpath collapses ../ // trailing-slash, case-folded matching, absolute/repo-escaping/non-string/missing-list all refused. Adversarial review caught 3 MAJOR bypasses (..-traversal, case variants, incomplete file list) — all fixed; 49 tests incl. every bypass vector. Suite 670→719 green. Review: SHIP)_
 - [ ] Every self-modification PR must pass CI before a human can merge; no auto-merge.
 - [ ] Provenance: link each PR back to the `reflections`/`proposals` row that motivated it.
 
-Progress: 0/4
+Progress: 1/4 _(#2 the protected-paths guardrail (PR #75) landed — the keystone safety primitive: a fail-closed, bypass-resistant denylist that refuses any self-mod diff touching risk/kill-switch/secrets/live-arming/the dry-run flag/the schema+guard/CI/itself. Next: #1 — the AI proposes code changes only as a branch+PR (via gh) with attached walk-forward backtests + green tests, using this guard as its chokepoint)_
 
 ---
 
