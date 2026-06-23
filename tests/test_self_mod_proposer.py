@@ -7,6 +7,7 @@ offline, no real git/gh."""
 import pytest
 
 from homing_trade import self_mod_proposer as smp
+from homing_trade.provenance import make_provenance
 
 
 def _green():
@@ -134,3 +135,57 @@ def test_propose_apply_requires_runners():
     with pytest.raises(ValueError):
         smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/x", title="x", rationale="y",
                        test_runner=_green, dry_run=False)   # no git/gh injected
+
+
+# --- Phase 9 #4: structured provenance + reverse-link recording ---
+def test_structured_provenance_renders_verified_ref_in_body():
+    p = make_provenance("reflections", 42, "cut RSI period; whipsaws in chop")
+    body = smp.build_pr_body(rationale="tune", provenance=p, backtests=None,
+                             test_summary="742 passed",
+                             changed_paths=["homing_trade/skills/rsi_revert.py"])
+    assert "reflections#42" in body and "whipsaws in chop" in body
+
+
+def test_apply_records_reverse_link_for_structured_provenance():
+    p = make_provenance("reflections", 42, "tune rsi")
+    recorded = []
+    r = smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/tune", title="tune",
+                       rationale="why", provenance=p, test_runner=_green,
+                       git=lambda a: None, gh=lambda a: "https://github.com/x/y/pull/99",
+                       dry_run=False,
+                       link_recorder=lambda prov, url, br, ti: recorded.append((prov, url, br, ti)) or 7)
+    assert r["ok"] and r["provenance_link"] == 7
+    assert recorded == [(p, "https://github.com/x/y/pull/99", "self/tune", "tune")]
+
+
+def test_no_reverse_link_for_freetext_provenance():
+    recorded = []
+    r = smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/tune", title="tune",
+                       rationale="why", provenance="reflection #42 (free text)", test_runner=_green,
+                       git=lambda a: None, gh=lambda a: "url", dry_run=False,
+                       link_recorder=lambda *a: recorded.append(a))
+    assert r["ok"] and r["provenance_link"] is None
+    assert recorded == []          # nothing to link back when there's no real row pointer
+
+
+def test_recorder_failure_never_loses_the_opened_pr():
+    # the PR is already open; a reverse-link recorder failure must surface in the result, NOT
+    # raise over (and lose) a real pr_url
+    def boom(*a):
+        raise RuntimeError("db down")
+    r = smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/tune", title="tune",
+                       rationale="why", provenance=make_provenance("reflections", 42),
+                       test_runner=_green, git=lambda a: None,
+                       gh=lambda a: "https://github.com/x/y/pull/99", dry_run=False,
+                       link_recorder=boom)
+    assert r["ok"] and r["pr_url"].endswith("/pull/99")
+    assert r["provenance_link"].startswith("link-failed:")
+
+
+def test_dry_run_records_no_reverse_link():
+    recorded = []
+    r = smp.propose_pr(["homing_trade/skills/macd.py"], branch="self/tune", title="tune",
+                       rationale="why", provenance=make_provenance("proposals", 7),
+                       test_runner=_green, git=lambda a: None, gh=lambda a: "url",
+                       link_recorder=lambda *a: recorded.append(a))   # dry_run defaults True
+    assert r["ok"] and r["dry_run"] and recorded == []
