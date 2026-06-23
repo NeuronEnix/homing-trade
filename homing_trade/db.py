@@ -825,6 +825,39 @@ class Database:
             "SELECT strategy, action, confidence, reason, ts FROM decision_log ORDER BY id DESC LIMIT ?",
             (limit,))]
 
+    # --- chronological range reads for the deterministic replay/audit tool -----------------
+    # All four return FULL rows (every provenance column) ordered by (ts, id) — a stable,
+    # deterministic chronological order — optionally filtered by strategy and a [start_ms, end_ms]
+    # window (inclusive; None = unbounded on that end). The replay tool joins them by decision_id /
+    # exact tick ts, so it reads through the repository rather than issuing its own SQL.
+    def _range_rows(self, table, strategy, start_ms, end_ms):
+        # `table` is interpolated into SQL but is ALWAYS a hardcoded literal from the four wrappers
+        # below — never user input — so this is injection-safe. Values are bound parameters.
+        cond, params = [], []
+        if strategy is not None:
+            cond.append("strategy=?"); params.append(strategy)
+        if start_ms is not None:
+            cond.append("ts>=?"); params.append(start_ms)
+        if end_ms is not None:
+            cond.append("ts<=?"); params.append(end_ms)
+        q = f"SELECT * FROM {table}"
+        if cond:
+            q += " WHERE " + " AND ".join(cond)
+        q += " ORDER BY ts ASC, id ASC"
+        return [dict(r) for r in self.conn.execute(q, params)]
+
+    def decisions_in_range(self, strategy=None, start_ms=None, end_ms=None):
+        return self._range_rows("decision_log", strategy, start_ms, end_ms)
+
+    def trades_in_range(self, strategy=None, start_ms=None, end_ms=None):
+        return self._range_rows("trades", strategy, start_ms, end_ms)
+
+    def llm_responses_in_range(self, strategy=None, start_ms=None, end_ms=None):
+        return self._range_rows("llm_responses", strategy, start_ms, end_ms)
+
+    def risk_events_in_range(self, strategy=None, start_ms=None, end_ms=None):
+        return self._range_rows("risk_events", strategy, start_ms, end_ms)
+
     def taken_action_counts(self, strategy):
         """How many decisions resolved to each taken_action (LONG/HOLD/BLOCKED/PAUSED/...)."""
         rows = self.conn.execute(
