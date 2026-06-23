@@ -39,10 +39,11 @@ def test_phase_statuses_on_synthetic():
 
 def test_phase_statuses_on_real_roadmap():
     s = sb.phase_statuses((ROOT / "ROADMAP.md").read_text(encoding="utf-8"))
-    # spot-check the phases whose state we know: completed phases -> Done, Phase 8 in progress
+    # spot-check phases whose state is stable: completed -> Done; Phase 3 is 8/9 (9th box externally
+    # blocked) so stably In Progress; Phase 10 not started -> Todo.
     assert s["Phase 1 — Structural foundation (kill the god-files, harden module boundaries)"] == "Done"
     assert any(k.startswith("Phase 7") and v == "Done" for k, v in s.items())
-    assert any(k.startswith("Phase 8") and v == "In Progress" for k, v in s.items())
+    assert any(k.startswith("Phase 3") and v == "In Progress" for k, v in s.items())
     assert any(k.startswith("Phase 10") and v == "Todo" for k, v in s.items())
 
 
