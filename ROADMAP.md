@@ -173,6 +173,21 @@ Progress: 0/8 _(not started — planning placeholder; sequenced AFTER Phase 10. 
 
 ---
 
+## Phase 12 — UI-native AI onboarding (add any LLM brain from the dashboard)
+Goal: onboarding a new AI brain should be as EASY AS POSSIBLE — done entirely from the UI, no `.env` editing and no restart. Pick a provider type, paste its config/keys, choose a model + version, test the connection, and activate; a new brain spins up and starts trading (paper, gated). Generalizes the Phase-5 env-discovered provider registry into a runtime, UI-managed one. "Adding another LLM" should feel like filling one short form. Lowest priority / furthest out — planning placeholder, build later.
+
+- [ ] **UI brain manager (CRUD, no restart).** List every brain with its provider type, model+version, enabled state, live status, and spend; add / edit / enable / disable / remove from the dashboard, hot-reloading the roster without bouncing the daemon.
+- [ ] **One adapter interface, many provider types.** Claude Code (cli, no key), Anthropic (API key), OpenAI (API key), OpenRouter / any OpenAI-compatible endpoint (key + base_url + model), and local/open-source (base_url). Reuse `llm_backends`; add a generic OpenAI-compatible adapter so OpenRouter + self-hosted models work with no new code per provider.
+- [ ] **Per-brain model + VERSION selection from a maintained catalog.** A list of available models/versions so you can A/B different versions of the same family. Versionless "latest" aliases where the backend supports them (the `claude` CLI); explicit versioned ids for API providers (with an alias→latest map the app maintains).
+- [ ] **Secure credential handling.** Keys entered in the UI are stored securely (encrypted at rest / OS keyring / a gitignored secrets store), NEVER written to the repo or logs, and masked in the UI. A "test connection" button validates the key/endpoint (degrade-safe) before a brain goes active.
+- [ ] **Safety is unchanged by onboarding.** Every UI-added brain is paper by default, gated by the proposal/approval system, bound by `PROTECTED_PROPOSAL_FIELDS`, subject to the provider-name whitelist, and capped by a per-brain cost budget. Onboarding can never bypass risk limits or live-arming.
+- [ ] **Cost + observability per brain, automatically.** The existing per-provider `cost_ledger` + brain-log + leaderboard cover any UI-added brain out of the box; surface per-brain spend and let the operator set/raise a budget cap from the UI.
+- [ ] **Clean brain lifecycle.** Adding a brain provisions its wallet; removing/retiring one archives (not destroys) its wallet + history so version experiments stay comparable.
+
+Progress: 0/7 _(not started — planning placeholder at the bottom of the roadmap; the long-term "onboard any LLM from the UI in one form" goal. Builds on Phase 5's registry; lowest priority. For now AI brains are configured via `AI_<NAME>_*` env vars.)_
+
+---
+
 ## Backlog / Later (low priority)
 - [ ] Config versioning framework (`ConfigV1/V2` + migrator) — `config.py` has ~50 fields.
 - [x] `ErrorBoundary` abstraction (per-skill error counters, auto-disable after N failures). _(PR #80: homing_trade/error_boundary.py — crash isolation for the always-on loop. process_tick wraps each skill's on_candle so a raise is caught + counted, never aborting the tick (the rest of the roster keeps trading); a clean run resets the streak; after N consecutive crashes the skill auto-disables with a `skill_disabled` risk_event + one alert, then is skipped (still risk-managed for any open position) until reset/restart. Hard exceptions only — soft AI consult errors don't count. Adversarial review SHIP; 15 tests; suite 815→830)_
