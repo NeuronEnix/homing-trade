@@ -4,6 +4,7 @@ import time
 import uuid
 from homing_trade.allocator import compute_allocations, recent_performance
 from homing_trade.config import CONFIG
+from homing_trade.error_boundary import ErrorBoundary
 from homing_trade.risk import DailyRiskGuard
 from homing_trade.repository import Repository
 from homing_trade.broker import Broker
@@ -73,7 +74,7 @@ def _open_position(db, broker, skill, side, candle, cfg, now_ms, weight=1.0, gua
 
 
 def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is_paused=None,
-                 is_disabled=None):
+                 is_disabled=None, error_boundary=None):
     candle = candles[-1]
     now_ms = int(time.time() * 1000)  # wall-clock event time for the audit trail
     paused = bool(is_paused and is_paused())  # when paused: manage/close existing, open nothing new
@@ -102,16 +103,39 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         # 1. risk checks on any existing position (stop / liquidation) — runs even when the
         #    strategy is disabled, so a parked position still gets its stop/liquidation safety.
         position = pm.manage_risk(skill, db.get_open_position(skill.name), candle, now_ms)
-        # 1b. disabled strategy: keep its existing position risk-managed, but take no new
-        #     decision — skips the consult entirely (no AI cost) and opens nothing new. Its
-        #     open position can still be exited via the manual close command (_drain_commands).
-        if is_disabled and is_disabled(skill.name):
+        # 1b. disabled strategy (manual toggle OR an ErrorBoundary trip — a skill auto-disabled after
+        #     repeated crashes): keep its existing position risk-managed, but take no new decision —
+        #     skips the consult entirely (no AI cost) and opens nothing new. Its open position can
+        #     still be exited via the manual close command (_drain_commands).
+        eb_tripped = error_boundary is not None and error_boundary.is_tripped(skill.name)
+        if eb_tripped or (is_disabled and is_disabled(skill.name)):
             pos_now = db.get_open_position(skill.name)
             unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
             db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
             continue
-        # 2. strategy decision
-        signal = skill.on_candle(candles, position)
+        # 2. strategy decision — isolated by the ErrorBoundary (when supplied) so a single skill that
+        #    RAISES can't abort the tick for the whole roster. A raise is counted; after N consecutive
+        #    crashes the skill trips (auto-disabled) with a recorded risk_event + one alert.
+        if error_boundary is not None:
+            try:
+                signal = skill.on_candle(candles, position)
+            except Exception as e:
+                newly_tripped = error_boundary.record_failure(skill.name, e)
+                if newly_tripped:
+                    # Fires exactly once by construction (record_failure returns True only on the
+                    # trip), so this alert is intentionally one-shot and outside the soft-error dedup.
+                    db.record_risk_event(now_ms, skill.name, "skill_disabled",
+                                         f"auto-disabled after {error_boundary.threshold} consecutive "
+                                         f"errors; last: {e}")
+                    if notifier is not None:
+                        notifier.notify("error", f"{skill.name} auto-disabled", str(e)[:400])
+                pos_now = db.get_open_position(skill.name)   # equity continuity; no decision this tick
+                unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
+                db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
+                continue
+            error_boundary.record_success(skill.name)        # a clean run clears the failure streak
+        else:
+            signal = skill.on_candle(candles, position)
         decision_id = uuid.uuid4().hex
         m = signal.meta or {}     # AI provenance (reasoning + prompt/playbook version + hash)
         # 2b. persist the full AI response + reasoning (only on a real consult or an error)
@@ -206,6 +230,10 @@ class SkillRunner:
         self.broker = broker
         self.guard = guard
         self.notifier = notifier
+        # Crash isolation for the always-on loop: one breaker shared across the roster, so a skill
+        # that raises is counted and (after N consecutive crashes) auto-disabled — never aborting
+        # the tick. Backtests don't pass a breaker, so their behavior is unchanged.
+        self.error_boundary = ErrorBoundary(getattr(cfg, "error_boundary_threshold", 3))
         self.mech_skills = build_skills(cfg.enabled_skills, cfg)
         self.ai_traders = build_ai_traders(cfg)
         self.skills = self.mech_skills + self.ai_traders
@@ -295,13 +323,14 @@ class SkillRunner:
         # Mechanical skills: only on a genuinely new candle (candle-driven).
         if self.mech_skills and self.ledger.get_state("last_candle_time") != newest:
             process_tick(self.ledger, self.broker, self.mech_skills, candles,
-                         self.cfg, self.guard, None, is_paused, is_disabled)
+                         self.cfg, self.guard, None, is_paused, is_disabled, self.error_boundary)
             self.ledger.set_state("last_candle_time", newest)
         # AI traders: every cycle; each one's wall-clock cadence gates actual consults.
         # The notifier lets a Claude/CLI error ping Discord (deduped inside process_tick).
         if self.ai_traders:
             process_tick(self.ledger, self.broker, self.ai_traders, candles,
-                         self.cfg, self.guard, self.notifier, is_paused, is_disabled)
+                         self.cfg, self.guard, self.notifier, is_paused, is_disabled,
+                         self.error_boundary)
         self._emit_trade_alerts()
         # Periodic reflection on its own slow cadence (no-op unless reflection_enabled). Self-
         # gated, so calling it every tick is cheap; it consults the model at most every poll_sec.
