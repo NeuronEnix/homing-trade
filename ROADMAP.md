@@ -157,6 +157,22 @@ Progress: 0/3
 
 ---
 
+## Phase 11 — Human-in-the-loop live control & notification (interactive, end-user-facing)
+Goal: an end user is ALWAYS informed of what the bot is doing and why, and ALWAYS in control — while the bot runs autonomously and only escalates for approval when an action is high-stakes or novel. Two live feeds — `paper-trade` (runs freely, narrate-only) and `live-trade` (autonomous, but asks before creative/large/risk-changing moves). Layered on the EXISTING primitives (the proposals approval-gate, comms read/post, provenance, the replay/audit tool, `PROTECTED_PROPOSAL_FIELDS`, and the kill-switch); real money stays behind the Phase-10 arming gate. Design principle: the human is the authority — the bot's job is to keep them fully in the know and to ask, never to quietly assume. _(Detailed design to be written into `docs/superpowers/specs/` before build — this phase must be defined thoroughly first.)_
+
+- [ ] **Two trade-feed channels + one message contract.** `paper-trade` (outbound webhook, narrate-only — no approvals, it just runs) and `live-trade` (interactive). Every message states what / why (AI thesis + the mechanical reason) / size / risk / `decision_id` (replay-linkable), tagged at one of three levels: routine (FYI), notable (heads-up), escalation (needs your input). Channel naming convention: `<word>-trade`.
+- [ ] **A deterministic, testable escalation policy — the single source of "when must the bot ask?"** Triggers: notional above a capital-% / absolute threshold; ANY risk-posture change (leverage / `risk_pct` / daily caps — already protected); novelty (a strategy / regime / size / confidence outside its learned envelope — a "creative" move); drawdown & volatility guardrails (approaching `max_daily_loss`, a loss streak, a vol spike); and every Phase-10 arming/scale-up step. Fail-safe: when the policy is unsure, it escalates — it NEVER silently proceeds. Fully logged + replayable.
+- [ ] **Second bot `ht-live` for the money control plane** — its own token + Message Content Intent, scoped to the `live-trade` channel ONLY. Independently killable and least-privilege, so a leaked live token can never touch the code/proposal plane. `ht-dev` stays the dev/proposal control plane (App ID + Public Key already on file in `.env`).
+- [ ] **Authenticated inbound command protocol** over the live channel, restricted to the owner's Discord user id (every other author ignored): `STOP-ALL` (instant kill-switch — NEVER gated or delayed by the approval flow), `APPROVE`/`REJECT <request-id>` (each request a unique, single-use, expiring id — replay-proof), `STATUS`/`QUERY`, `RESUME`, and `SET-POSTURE`.
+- [ ] **Risk-loosening ("be more aggressive") handled with ceremony.** A hard code+human ceiling a chat reply can NEVER exceed; an explicit two-step confirm (not a one-word message); and auto-revert to normal posture after a bounded time/PnL window. Asymmetry by design: tightening / `STOP` is always immediate and unconditional; loosening is always bounded, confirmed, and temporary.
+- [ ] **Fail-safe defaults on every escalation.** If a prompt is unanswered within its timeout, take the SAFE branch (hold / don't open / shrink) — never the risky one; auth failures default-deny. Each prompt states its own "no answer ⇒ X" so the human always knows the default that will fire.
+- [ ] **Rich, low-noise UX via Discord Interactions** — embeds + Approve/Reject/Stop BUTTONS (Ed25519-verified with the app Public Key) instead of parsing free text; routine messages batched/digested, escalations delivered immediately. (A v1 may poll text replies, then upgrade to buttons.)
+- [ ] **Full audit + replay integration.** Every notification, escalation, command, approval, and resulting effect is recorded in the audit-truth tables and provenance-linked, so the replay/audit tool reconstructs the human-in-the-loop timeline trade-by-trade: who approved what, when, and exactly why the bot asked.
+
+Progress: 0/8 _(not started — planning placeholder; sequenced AFTER Phase 10. Prove the whole notification → escalation → command UX on the zero-risk `paper-trade` channel FIRST, then bring up `ht-live` + `live-trade` behind the Phase-10 arming gate. Build only after a detailed design doc lands.)_
+
+---
+
 ## Backlog / Later (low priority)
 - [ ] Config versioning framework (`ConfigV1/V2` + migrator) — `config.py` has ~50 fields.
 - [ ] `ErrorBoundary` abstraction (per-skill error counters, auto-disable after N failures).
