@@ -3,11 +3,11 @@ import os
 import time
 import uuid
 from homing_trade.allocator import compute_allocations, recent_performance
+from homing_trade.arming import select_broker
 from homing_trade.config import CONFIG
 from homing_trade.error_boundary import ErrorBoundary
 from homing_trade.risk import DailyRiskGuard
 from homing_trade.repository import Repository
-from homing_trade.broker import Broker
 from homing_trade.feed import get_candles
 from homing_trade.position_manager import PositionManager
 from homing_trade.skills.indicators import classify_regime
@@ -385,7 +385,9 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
         should_stop=None, is_paused=None, commands=None, is_disabled=None):
     sleeper = sleeper or time.sleep
     repo = Repository.open(cfg.db_path)
-    broker = Broker(cfg.fee, cfg.slippage)
+    # The arming gate picks the broker: PAPER by default; any live mode fails safe until the live
+    # execution layer is integrated (Phase 10). So enabling the flags can never silently trade.
+    broker, _mode = select_broker(cfg)
     guard = _make_guard(cfg)
     runner = SkillRunner(cfg, repo, broker, guard=guard, notifier=notifier)
     ticks = 0

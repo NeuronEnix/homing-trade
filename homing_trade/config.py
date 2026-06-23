@@ -110,6 +110,9 @@ class Config:
     telegram_chat_id_env: str = "TELEGRAM_CHAT_ID"
     live_enabled: bool = False
     live_dry_run: bool = True
+    # Phase 10 #1 arming gate: hard ceiling (USDT) on capital exposed to REAL orders. Must be > 0 to
+    # arm LIVE (a precondition the gate enforces); actual sizing-enforcement lands with #2. 0 = unset.
+    live_capital_cap: float = 0.0
     coindcx_key_env: str = "COINDCX_API_KEY"
     coindcx_secret_env: str = "COINDCX_API_SECRET"
     daemon_status_path: str = "data/daemon_status.json"
