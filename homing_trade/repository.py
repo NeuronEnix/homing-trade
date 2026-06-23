@@ -122,6 +122,19 @@ class Repository(Ledger):
     def taken_action_counts(self, strategy) -> dict:
         return self.db.taken_action_counts(strategy)
 
+    # chronological range reads for the deterministic replay/audit tool
+    def decisions_in_range(self, strategy=None, start_ms=None, end_ms=None) -> list:
+        return self.db.decisions_in_range(strategy, start_ms, end_ms)
+
+    def trades_in_range(self, strategy=None, start_ms=None, end_ms=None) -> list:
+        return self.db.trades_in_range(strategy, start_ms, end_ms)
+
+    def llm_responses_in_range(self, strategy=None, start_ms=None, end_ms=None) -> list:
+        return self.db.llm_responses_in_range(strategy, start_ms, end_ms)
+
+    def risk_events_in_range(self, strategy=None, start_ms=None, end_ms=None) -> list:
+        return self.db.risk_events_in_range(strategy, start_ms, end_ms)
+
     def recent_llm_responses(self, strategy=None, limit=20):
         return self.db.recent_llm_responses(strategy, limit)
 
