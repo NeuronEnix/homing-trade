@@ -8,6 +8,28 @@ editing the old one.
 
 ---
 
+## 2026-06-24 — The system was structurally long-only; fix reversal handling so it can short
+**Decision.** A second look at `data/paper_trading.db` (now 29 closed trades, **all LONG**, net
+−591 INR, every strategy negative) against the regime mix (`trend_down` 953 decisions vs `trend_up`
+**50**) showed the loss was structural, not a reasoning failure: the market was overwhelmingly down
+and the book could only go long. Root cause found in `engine.py`: a directional signal was acted on
+**only when flat** (`position is None`) — an opposite-side signal while holding a position fell
+through to a silent no-op. Mechanical trend strategies never emit `CLOSE`, so once `ma_trend` went
+long on a brief up-crossover, a later bearish crossover could neither exit nor flip it; it rode the
+downtrend to its stop (the correlated −2.15% stops). **Fix:** an opposite-side signal now always
+**closes** the position (exit_reason `reversal`); when `reversal_flip_enabled` (default **true**) and
+entries aren't paused, it then **opens the opposite side** so a trend strategy can actually short a
+downtrend. Same-side signals are an explicit no-op. New flag `REVERSAL_FLIP_IS_ENABLED`.
+**Why.** Closing on a self-reversal is unambiguously correct (your own strategy says the thesis is
+gone). The flip is the directional lever that lets a long-only roster profit in a down-dominated
+market — and the regime gate (enabled 2026-06-23) keeps flip whipsaw in chop size-limited. Paper
+money, reversible by config, covered by tests (`tests/test_engine_reversal.py`).
+**Status.** Live in code (904 tests green). Effective on the next daemon **restart** — the running
+`web` process holds its old code+config. NOTE the learn loop is **not yet producing** (reflections=0,
+proposals=0) despite `.env`; the running process predates the enablement → restart needed there too.
+The **LLM brain's** long-bias is separate (it refuses longs in downtrends but doesn't yet short an
+oversold extreme — sound for now); revisit via the reflect loop once it runs.
+
 ## 2026-06-23 — Data-driven tweaks after the first paper run
 **Decision.** Reviewed `data/paper_trading.db` (1671 decisions, 9 closed trades). Findings: the bot
 was **effectively long-only** (zero SHORT intents across the whole run — the LLM brain never shorted,

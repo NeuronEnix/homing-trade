@@ -21,6 +21,12 @@ class Config:
     slippage: float = 0.0005  # 5 bps
     risk_pct: float = 0.02    # max loss fraction of balance per trade
     stop_pct: float = 0.02    # stop distance as fraction of entry price
+    # Reversal handling: when a strategy emits a directional signal OPPOSITE to its open position
+    # (e.g. a bearish crossover while holding LONG), the position is always CLOSED — the strategy's
+    # own thesis just reversed. When reversal_flip_enabled, it then OPENS the opposite side (a flip)
+    # so trend strategies can actually short a downtrend instead of riding a long to the stop.
+    # Closing-on-reversal is unconditional (a correctness fix); the flip is the directional bet.
+    reversal_flip_enabled: bool = True
     db_path: str = "data/paper_trading.db"
     enabled_skills: list[str] = field(
         default_factory=lambda: ["ma_trend", "rsi_revert", "grid", "macd", "bollinger", "donchian"]
@@ -216,6 +222,7 @@ def from_env(base=None, *, dotenv_path=".env"):
         research_model=_s("RESEARCH_MODEL", cfg.research_model),
         # Portfolio gates + autonomous loops that were built (Phases 4/7, Phase 3 #8) but had no
         # operator switch — wiring them here so they can be turned on from .env without a code edit.
+        reversal_flip_enabled=_b("REVERSAL_FLIP_IS_ENABLED", cfg.reversal_flip_enabled),
         regime_filter_enabled=_b("REGIME_FILTER_IS_ENABLED", cfg.regime_filter_enabled),
         regime_unfavored_weight=_f("REGIME_UNFAVORED_WEIGHT", cfg.regime_unfavored_weight),
         regime_committee_threshold_scale=_f("REGIME_COMMITTEE_THRESHOLD_SCALE",

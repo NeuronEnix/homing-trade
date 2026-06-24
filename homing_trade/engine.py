@@ -165,13 +165,29 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
             skill._last_alerted_error = None
         # 3. act on the decision, recording what was actually taken (and why, if blocked)
         taken_action, rejection = "HOLD", None
-        if signal.action in ("LONG", "SHORT") and position is None:
-            if paused:
-                taken_action, rejection = "PAUSED", "paused: new entries disabled"
+        if signal.action in ("LONG", "SHORT"):
+            if position is None:
+                if paused:
+                    taken_action, rejection = "PAUSED", "paused: new entries disabled"
+                else:
+                    opened, reason = pm.open(skill, signal.action, candle, now_ms, weight,
+                                             decision_id=decision_id, regime_at_entry=reg["regime"])
+                    taken_action, rejection = (signal.action, None) if opened else ("BLOCKED", reason)
+            elif position.side != signal.action:
+                # Reversal: the strategy's own thesis flipped to the opposite side. ALWAYS close the
+                # current position (else a trend strategy with no CLOSE signal rides it to the stop).
+                # Then, if flips are enabled and entries aren't paused, open the opposite side so the
+                # strategy can actually trade the new direction (e.g. short a confirmed downtrend).
+                pm.close(skill, position, candle.close, candle, now_ms, exit_reason="reversal")
+                if cfg.reversal_flip_enabled and not paused:
+                    opened, reason = pm.open(skill, signal.action, candle, now_ms, weight,
+                                             decision_id=decision_id, regime_at_entry=reg["regime"])
+                    taken_action, rejection = (signal.action, None) if opened else ("CLOSE", reason)
+                else:
+                    taken_action = "CLOSE"
             else:
-                opened, reason = pm.open(skill, signal.action, candle, now_ms, weight,
-                                         decision_id=decision_id, regime_at_entry=reg["regime"])
-                taken_action, rejection = (signal.action, None) if opened else ("BLOCKED", reason)
+                # Same-side signal while already in that position — nothing to do (already aligned).
+                taken_action, rejection = "HOLD", "already in position (same side)"
         elif signal.action == "CLOSE" and position is not None:
             pm.close(skill, position, candle.close, candle, now_ms, exit_reason="signal")
             taken_action = "CLOSE"
