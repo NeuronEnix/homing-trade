@@ -8,6 +8,22 @@ editing the old one.
 
 ---
 
+## 2026-06-24 — Manual "exit trade" made prompt + outage-proof; dev auto-reloader added
+**Decision.** Two operability fixes. (1) **Exit trade.** The UI close goes through a command queue
+drained by the engine thread (single-writer, race-free). It worked but felt broken: `/api/close`
+returned `{ok:true}` instantly while the close only landed on the next engine tick (up to
+`poll_seconds` later), and commands were drained **only when a candle fetch succeeded** — a feed
+blip stranded the exit. Now the controller **wakes the poll loop the instant a command is enqueued**
+(an `_wake` Event interrupts the sleep) and the run loop **drains commands even on an empty-feed
+tick** using the last known price. (2) **Dev auto-reloader** (`homing_trade/devwatch.py` +
+`tools/dev.sh`) — a stdlib "nodemon for Python": watches `homing_trade/**/*.py` + `.env` and restarts
+the entrypoint on save, so code/`.env` edits take effect without a manual bounce.
+**Why.** Exiting a position is the one action that must never be slow or feed-dependent — an operator
+flattening a trade can't be made to wait on the network or a full poll. The reloader removes the
+restart-by-hand friction this work kept hitting (every `.env`/code change needed a manual bounce).
+**Status.** Live in code (916 tests green: `tests/test_exit_command.py`, `tests/test_devwatch.py`).
+Reloader is dev-only; production restart stays with the daemon + OS supervisor.
+
 ## 2026-06-24 — The system was structurally long-only; fix reversal handling so it can short
 **Decision.** A second look at `data/paper_trading.db` (now 29 closed trades, **all LONG**, net
 −591 INR, every strategy negative) against the regime mix (`trend_down` 953 decisions vs `trend_up`

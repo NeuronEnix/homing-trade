@@ -378,6 +378,12 @@ class SkillRunner:
         # Discord inbound approvals on their own (fast) cadence — no-op unless inbound is configured.
         self.approvals.run()
 
+    def drain_commands(self, commands, candle):
+        """Honor queued manual commands (e.g. exit a trade) at the given price. Exposed so the run
+        loop can flush commands even on a tick where the live feed returned no fresh candle — a
+        network blip must never strand an operator trying to flatten a position."""
+        _drain_commands(self.ledger, self.broker, self.skills, candle, commands)
+
     def _emit_trade_alerts(self):
         if self.notifier is None and not self.trade_feed.enabled:
             return
@@ -442,6 +448,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
     guard = _make_guard(cfg)
     runner = SkillRunner(cfg, repo, broker, guard=guard, notifier=notifier)
     ticks = 0
+    last_candle = None     # freshest candle seen — lets manual commands run during a feed outage
     try:
         while max_ticks is None or ticks < max_ticks:
             if should_stop is not None and should_stop():
@@ -452,6 +459,7 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                 print(f"[feed] fetch failed, skipping tick: {exc}")
                 candles = []
             if candles:
+                last_candle = candles[-1]
                 repo.save_candles(cfg.pair_candles, cfg.interval, candles, source="live")
                 runner.run_tick(candles, is_paused=is_paused, commands=commands,
                                 is_disabled=is_disabled)
@@ -462,6 +470,10 @@ def run(cfg=CONFIG, *, fetcher=None, max_ticks=None, sleeper=None, notifier=None
                         notifier.notify("error", "risk halt", guard.halted_reason)
                     print(f"[risk] halting: {guard.halted_reason}")
                     break
+            elif last_candle is not None:
+                # Feed is down this tick, but still honor manual commands (e.g. exit a trade) at the
+                # last known price — never make an operator wait on the network to flatten a position.
+                runner.drain_commands(commands, last_candle)
             ticks += 1
             if max_ticks is None or ticks < max_ticks:
                 sleeper(cfg.poll_seconds)

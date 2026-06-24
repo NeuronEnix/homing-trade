@@ -35,6 +35,9 @@ class Controller:
         self._stop = threading.Event()
         self._paused = threading.Event()
         self._commands = queue.Queue()
+        # Set whenever the loop should wake from its poll sleep early — a stop request or a queued
+        # manual command (e.g. exit a trade). Without it, a click could wait a full poll_seconds.
+        self._wake = threading.Event()
         self.last_error = None
         self.notifier = notifier or build_notifier(cfg)
         # Per-strategy enable/disable. A disabled strategy keeps existing-position risk
@@ -59,13 +62,21 @@ class Controller:
     def _run(self):
         try:
             self._runner(self.cfg, notifier=self.notifier, should_stop=self._stop.is_set,
-                         is_paused=self._paused.is_set, sleeper=lambda s: self._stop.wait(s),
+                         is_paused=self._paused.is_set, sleeper=self._interruptible_sleep,
                          commands=self._commands, is_disabled=lambda n: n in self._disabled)
         except Exception as exc:  # surface engine crashes in the UI
             self.last_error = str(exc)
 
+    def _interruptible_sleep(self, seconds):
+        """Poll-loop sleep that ends early when a stop or a manual command is signaled, so an
+        operator's 'exit trade' click is honored within a tick instead of up to poll_seconds later.
+        Either event wakes it; the loop re-checks should_stop + drains commands at the top."""
+        self._wake.wait(seconds)
+        self._wake.clear()
+
     def stop(self):
         self._stop.set()
+        self._wake.set()                    # break the poll sleep immediately
         if self._thread:
             self._thread.join(timeout=30)
             self._thread = None
@@ -79,6 +90,7 @@ class Controller:
     def close_trade(self, strategy):
         if strategy:
             self._commands.put({"action": "close", "strategy": strategy})
+            self._wake.set()                # execute on the next loop pass, not a poll later
 
     def set_strategy_enabled(self, strategy, enabled):
         """Enable/disable one strategy at runtime (the engine reads this live each tick)."""
