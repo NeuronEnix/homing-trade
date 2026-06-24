@@ -31,7 +31,14 @@ python -m homing_trade.engine     # run the paper tournament loop (headless)
 python -m homing_trade.report     # leaderboard
 python -m homing_trade.backtest --days 90        # backtest all strategies on stored history
 python -m homing_trade.daemon     # run the paper bot unattended (heartbeat + alerts)
+
+tools/dev.sh                      # dev auto-reload: restarts on any .py/.env change (nodemon-style)
 ```
+
+> **Dev auto-reload.** `tools/dev.sh` (or `python -m homing_trade.devwatch [module ...]`) watches
+> `homing_trade/**/*.py` + `.env` and restarts the entrypoint (default `homing_trade.web`) on every
+> save — so config/code edits take effect without bouncing it by hand. Dev only; production restart
+> is handled by the daemon + OS supervisor.
 
 ## Web dashboard
 
