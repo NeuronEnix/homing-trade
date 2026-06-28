@@ -20,7 +20,10 @@ class Config:
     fee: float = 0.0005       # 0.05% per side
     slippage: float = 0.0005  # 5 bps
     risk_pct: float = 0.02    # max loss fraction of balance per trade
-    stop_pct: float = 0.02    # stop distance as fraction of entry price
+    stop_pct: float = 0.035   # stop distance as fraction of entry price. Widened from 0.02 after
+                              # 7d paper run: ALL loss was stop-outs (-$983) vs +$250 signal exits —
+                              # 2% stops whipsawed counter-trend longs. Fixed-risk sizing auto-shrinks
+                              # size so $-risk/trade is unchanged; this just gives signals room to work.
     # Reversal handling: when a strategy emits a directional signal OPPOSITE to its open position
     # (e.g. a bearish crossover while holding LONG), the position is always CLOSED — the strategy's
     # own thesis just reversed. When reversal_flip_enabled, it then OPENS the opposite side (a flip)
