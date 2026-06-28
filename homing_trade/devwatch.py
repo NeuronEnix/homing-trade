@@ -74,6 +74,15 @@ def build_command(target, *, python=None):
     return [python or sys.executable, "-m", *(target or DEFAULT_TARGET)]
 
 
+def child_env(base=None):
+    """Environment for a reloaded child: a copy of `base` (default os.environ) with HT_NO_BROWSER=1,
+    so the web UI never re-opens a browser tab on each restart — the whole point of the dev loop is
+    to keep ONE tab open while the server reloads under it."""
+    env = dict(os.environ if base is None else base)
+    env["HT_NO_BROWSER"] = "1"
+    return env
+
+
 class Reloader:
     """Spawn `command` as a child, watch files, and restart the child on any change."""
 
@@ -93,7 +102,7 @@ class Reloader:
     def _spawn(self):
         # start_new_session=True puts the child in its own process group, so a Ctrl-C in the
         # terminal hits only the reloader — we then forward a clean stop to the child ourselves.
-        self.proc = subprocess.Popen(self.command, start_new_session=True)
+        self.proc = subprocess.Popen(self.command, start_new_session=True, env=child_env())
         self.log(f"[devwatch] started: {' '.join(self.command)} (pid {self.proc.pid})")
 
     def _stop_child(self):

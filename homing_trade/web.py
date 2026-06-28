@@ -388,5 +388,18 @@ def _load_dashboard_html():
 DASHBOARD_HTML = _load_dashboard_html()
 
 
+def should_open_browser(argv=None, environ=None) -> bool:
+    """Whether to auto-open a browser tab on startup. OFF when `--no-browser` is passed or
+    HT_NO_BROWSER=1 is set — devwatch sets the env var so a hot-reload never spawns a fresh tab on
+    every restart. ON otherwise, so a plain `python -m homing_trade.web` still opens the dashboard
+    once."""
+    import sys
+    argv = sys.argv if argv is None else argv
+    environ = os.environ if environ is None else environ
+    if "--no-browser" in argv:
+        return False
+    return environ.get("HT_NO_BROWSER") != "1"
+
+
 if __name__ == "__main__":
-    main()
+    main(open_browser=should_open_browser())
