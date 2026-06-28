@@ -495,19 +495,29 @@ class Database:
         self.conn.execute("UPDATE positions SET status='closed' WHERE id=?", (position_id,))
         self.conn.commit()
 
-    def get_open_position(self, name: str) -> Position | None:
-        row = self.conn.execute(
-            "SELECT * FROM positions WHERE strategy=? AND status='open' ORDER BY id DESC LIMIT 1",
-            (name,),
-        ).fetchone()
-        if not row:
-            return None
+    @staticmethod
+    def _position_from_row(row) -> Position:
         return Position(
             id=row["id"], strategy=row["strategy"], side=row["side"],
             entry_price=row["entry_price"], size=row["size"], leverage=row["leverage"],
             margin=row["margin"], stop_price=row["stop_price"], opened_at=row["opened_at"],
             status=row["status"],
         )
+
+    def get_open_position(self, name: str) -> Position | None:
+        row = self.conn.execute(
+            "SELECT * FROM positions WHERE strategy=? AND status='open' ORDER BY id DESC LIMIT 1",
+            (name,),
+        ).fetchone()
+        return self._position_from_row(row) if row else None
+
+    def get_open_positions(self) -> list[Position]:
+        """Every currently-open position across ALL strategies — including ones no longer in the
+        roster. Lets the engine still risk-manage a position whose strategy was demoted out of
+        enabled_skills, so it can never ride unmanaged (no stop / no liquidation check)."""
+        rows = self.conn.execute(
+            "SELECT * FROM positions WHERE status='open' ORDER BY id").fetchall()
+        return [self._position_from_row(r) for r in rows]
 
     def record_trade(self, strategy, position_id, side, action, price, size, fee, pnl, ts,
                      *, decision_price=None, slippage=None, exit_reason=None,

@@ -44,6 +44,15 @@ _SKILL_FACTORY = {
 }
 
 
+class _Named:
+    """Minimal stand-in carrying just a strategy name — enough for PositionManager.manage_risk/close
+    (which key the ledger by skill.name) to risk-manage an orphaned position with no live skill."""
+    __slots__ = ("name",)
+
+    def __init__(self, name):
+        self.name = name
+
+
 def build_skills(names, cfg=None):
     skills = []
     for n in names:
@@ -211,6 +220,21 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         pos_now = db.get_open_position(skill.name)
         unreal = broker.unrealized_pnl(pos_now, candle.close) if pos_now else 0.0
         db.record_equity(skill.name, db.get_balance(skill.name) + unreal, now_ms)
+    # Orphan safety: risk-manage any OPEN position whose strategy is no longer in the roster (e.g.
+    # demoted out of enabled_skills, or a renamed strategy) — enforce its stop/liquidation so it can
+    # never ride unmanaged. It takes no NEW decision; this is purely the protective stop/liq check
+    # the in-roster strategies already get. Guarded so only a ledger that can enumerate every open
+    # position (the live Database) participates; the in-memory backtest ledger simply skips it.
+    if hasattr(db, "get_open_positions"):
+        roster = {s.name for s in skills}
+        for pos in db.get_open_positions():
+            if pos.strategy in roster:
+                continue
+            pm.manage_risk(_Named(pos.strategy), pos, candle, now_ms)
+            bal = db.get_balance(pos.strategy)
+            still_open = db.get_open_position(pos.strategy)
+            unreal = broker.unrealized_pnl(still_open, candle.close) if still_open else 0.0
+            db.record_equity(pos.strategy, bal + unreal, now_ms)
     # Refresh the denormalized outcome table (open->close joins + MAE/MFE from the candle path)
     # so the UI's per-regime/per-exit attribution and the reflection layer read fresh data.
     # Runs once per tick (candle for mech skills, poll cadence for AI traders) + idempotent;
