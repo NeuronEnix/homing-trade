@@ -45,10 +45,24 @@ def test_vol_breakout_zero_avg_volume_never_enters():
     assert sig.action == "HOLD"            # avg_vol == 0 -> vol_ok False, no spurious breakout
 
 
-def test_vol_breakout_breakdown_closes_long():
-    sig = VolumeBreakout(period=20).on_candle(
-        cfv([100.0] * 20 + [90.0], [1.0] * 21), long_pos())
-    assert sig.action == "CLOSE"
+def test_vol_breakout_confirmed_breakdown_reverses_to_short():
+    # a volume-confirmed break BELOW the prior low reverses a long into a short (symmetric).
+    sig = VolumeBreakout(period=20, vol_mult=1.5).on_candle(
+        cfv([100.0] * 20 + [90.0], [1.0] * 20 + [2.0]), long_pos())
+    assert sig.action == "SHORT"
+
+
+def test_vol_breakout_confirmed_breakdown_from_flat_enters_short():
+    sig = VolumeBreakout(period=20, vol_mult=1.5).on_candle(
+        cfv([100.0] * 20 + [90.0], [1.0] * 20 + [2.0]), None)
+    assert sig.action == "SHORT"
+
+
+def test_vol_breakout_unconfirmed_breakdown_holds():
+    # break below the low but volume only average -> unconfirmed -> no short
+    sig = VolumeBreakout(period=20, vol_mult=1.5).on_candle(
+        cfv([100.0] * 20 + [90.0], [1.0] * 21), None)
+    assert sig.action == "HOLD"
 
 
 def test_vol_breakout_registered_in_factory():

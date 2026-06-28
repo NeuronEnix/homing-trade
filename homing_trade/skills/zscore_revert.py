@@ -1,10 +1,9 @@
 """Z-score mean-reversion — a candidate mean-reverter (Phase 7 #2).
 
 Standardize the latest close against its rolling `period` mean/std: z = (price − mean) / std. Go LONG
-when price is `z_entry` std below the mean (oversold) and flat; close a long once it reverts back
-toward the mean (z ≥ −z_exit). Long-only, mirroring the Bollinger reverter (the engine supports SHORT,
-but candidate reverters stay long-only for now). The window includes the current bar, matching the
-Bollinger convention.
+when price is `z_entry` std below the mean (oversold) and SHORT when `z_entry` std above (overbought),
+from a flat book; exit either side once it reverts toward the mean (|z| ≤ z_exit). Symmetric, mirroring
+the Bollinger reverter. The window includes the current bar, matching the Bollinger convention.
 
 CANDIDATE: registered in the skill factory (evaluable by the backtest + walk-forward harness) but NOT
 in the default enabled_skills — it joins the live paper tournament only on out-of-sample promotion.
@@ -32,10 +31,17 @@ class ZScoreRevert(Strategy):
             return Signal("HOLD", reason="flat", indicators={"z": 0.0, "mean": round(mean, 2)})
         z = (closes[-1] - mean) / sd
         ind = {"z": round(z, 3), "mean": round(mean, 2), "sd": round(sd, 4)}
-        is_long = position is not None and position.side == "LONG"
+        side = position.side if position is not None else None
+        # Exit either side once price reverts toward the mean — checked before entries (flat only).
+        if side == "LONG" and z >= -self.z_exit:
+            return Signal("CLOSE", confidence=0.6, reason=f"z={z:.2f} reverted toward mean", indicators=ind)
+        if side == "SHORT" and z <= self.z_exit:
+            return Signal("CLOSE", confidence=0.6, reason=f"z={z:.2f} reverted toward mean", indicators=ind)
+        # Symmetric entries: fade the extreme on either side.
         if position is None and z <= -self.z_entry:
             return Signal("LONG", confidence=min(0.9, abs(z) / 4),
                           reason=f"z={z:.2f} <= -{self.z_entry}", indicators=ind)
-        if is_long and z >= -self.z_exit:
-            return Signal("CLOSE", confidence=0.6, reason=f"z={z:.2f} reverted toward mean", indicators=ind)
+        if position is None and z >= self.z_entry:
+            return Signal("SHORT", confidence=min(0.9, abs(z) / 4),
+                          reason=f"z={z:.2f} >= {self.z_entry}", indicators=ind)
         return Signal("HOLD", reason=f"z={z:.2f}", indicators=ind)

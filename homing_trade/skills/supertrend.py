@@ -2,8 +2,9 @@
 
 Supertrend places bands at hl2 ± mult·ATR with the standard 'final band' carry-forward rule: the
 upper band can only ratchet down (and the lower band up) while the trend holds, and price closing
-beyond a band flips the trend. We trade the FLIP: enter LONG on a down→up flip, close a long on the
-up→down flip. Long-only and entry-on-flip-only, so it never re-enters mid-trend. The seed bar's trend
+beyond a band flips the trend. We trade the FLIP symmetrically: LONG on a down→up flip, SHORT on the
+up→down flip (the engine closes-and-flips an opposing position). Entry-on-flip-only, so it never
+re-enters mid-trend. The seed bar's trend
 is arbitrary (derived from one bar with no prior context), so we require ≥3 computed bars before
 acting — the flip reference is then a recursion-confirmed trend, not the raw seed.
 
@@ -64,9 +65,10 @@ class Supertrend(Strategy):
         prev_trend = series[-2][0]
         trend, line = series[-1]
         ind = {"supertrend": line, "trend": trend}
-        is_long = position is not None and position.side == "LONG"
-        if position is None and trend == "up" and prev_trend == "down":
+        # Symmetric: trade the flip in either direction; the engine closes-and-flips an opposing
+        # position, so an up->down flip reverses a long into a short rather than just closing it.
+        if trend == "up" and prev_trend == "down":
             return Signal("LONG", confidence=0.6, reason=f"supertrend flip up @ {line:.0f}", indicators=ind)
-        if is_long and trend == "down" and prev_trend == "up":
-            return Signal("CLOSE", confidence=0.6, reason=f"supertrend flip down @ {line:.0f}", indicators=ind)
+        if trend == "down" and prev_trend == "up":
+            return Signal("SHORT", confidence=0.6, reason=f"supertrend flip down @ {line:.0f}", indicators=ind)
         return Signal("HOLD", reason=f"trend {trend}", indicators=ind)

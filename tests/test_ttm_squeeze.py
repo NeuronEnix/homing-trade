@@ -35,10 +35,10 @@ def test_ttm_release_up_enters_long():
     assert sig.indicators["squeeze"] is False and sig.indicators["momentum"] > 0
 
 
-def test_ttm_release_down_does_not_enter_long():
-    # release but momentum is negative -> long-only strategy stays flat
+def test_ttm_release_down_enters_short():
+    # release with negative momentum -> SHORT the breakout (symmetric; was long-only HOLD)
     sig = TtmSqueeze(period=5).on_candle(cf([100.0] * 8 + [92.0]), None)
-    assert sig.action == "HOLD"
+    assert sig.action == "SHORT"
     assert sig.indicators["momentum"] < 0
 
 

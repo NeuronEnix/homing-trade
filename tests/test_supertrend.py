@@ -42,12 +42,19 @@ def test_supertrend_flip_up_enters_long():
     assert sig.indicators["trend"] == "up" and "supertrend" in sig.indicators
 
 
-def test_supertrend_flip_down_closes_long():
-    # a settled uptrend, then a sharp drop on the LAST bar forces an up->down flip there
+def test_supertrend_flip_down_reverses_to_short():
+    # a settled uptrend, then a sharp drop on the LAST bar forces an up->down flip there.
+    # Symmetric: emit SHORT so the engine closes the long and flips (was long-only CLOSE).
     prices = [float(p) for p in range(80, 180)] + [50.0]
     sig = Supertrend(period=10, mult=3.0).on_candle(cf(prices), long_pos())
-    assert sig.action == "CLOSE"
+    assert sig.action == "SHORT"
     assert sig.indicators["trend"] == "down"
+
+
+def test_supertrend_flip_down_from_flat_enters_short():
+    prices = [float(p) for p in range(80, 180)] + [50.0]
+    sig = Supertrend(period=10, mult=3.0).on_candle(cf(prices), None)
+    assert sig.action == "SHORT"
 
 
 def test_supertrend_no_reentry_or_close_mid_uptrend():

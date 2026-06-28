@@ -35,6 +35,26 @@ def test_zscore_oversold_enters_long():
     assert sig.indicators["z"] < -2.0
 
 
+def short_pos(name="zscore_revert"):
+    return Position(strategy=name, side="SHORT", entry_price=110, size=1, leverage=15,
+                    margin=1, stop_price=116, opened_at=0)
+
+
+def test_zscore_overbought_enters_short():
+    # z >= +z_entry (overbought) from flat -> SHORT (symmetric; was long-only HOLD)
+    sig = ZScoreRevert(period=20, z_entry=2.0).on_candle(cf([100.0] * 19 + [110.0]), None)
+    assert sig.action == "SHORT"
+    assert sig.indicators["z"] > 2.0
+
+
+def test_zscore_reverts_closes_short():
+    # ascending ramp: last price ~1.6 std ABOVE the mean -> a short reverts toward mean -> CLOSE
+    sig = ZScoreRevert(period=20, z_exit=2.0).on_candle(cf([float(p) for p in range(80, 100)]),
+                                                        short_pos())
+    assert sig.action == "CLOSE"
+    assert 0.0 < sig.indicators["z"] < 2.0
+
+
 def test_zscore_reverts_closes_long():
     # descending ramp: last price is ~1.6 std below the mean — no longer 2-std oversold, so a long
     # exits. Non-vacuous: z lands strictly inside (-z_exit, 0), exercising the exit threshold.

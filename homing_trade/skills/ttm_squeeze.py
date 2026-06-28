@@ -2,8 +2,9 @@
 
 The squeeze is ON when the Bollinger Bands sit INSIDE the Keltner Channels (volatility compressed);
 it RELEASES when the bands expand back outside the channel. We trade the release in the direction of
-momentum: go LONG when a squeeze releases with positive momentum (close above the BB midline). Close a
-long when the squeeze re-engages or momentum turns negative. Long-only.
+momentum: LONG when a squeeze releases with positive momentum (close above the BB midline), SHORT when
+it releases with negative momentum. Exit to flat when the squeeze re-engages or momentum flips against
+the position. Symmetric.
 
   * Bollinger: SMA(close, period) ± bb_std·stdev
   * Keltner:   EMA(close, period) ± kc_mult·ATR(period)
@@ -50,12 +51,22 @@ class TtmSqueeze(Strategy):
         prev_on, _ = prev
         released = prev_on and not on                     # compression just broke
         ind = {"squeeze": on, "momentum": round(mom, 2)}
-        is_long = position is not None and position.side == "LONG"
+        side = position.side if position is not None else None
+        # Exit to flat when the squeeze re-engages or momentum flips against the position — checked
+        # before entries (entries require a flat book).
+        if side == "LONG" and (on or mom < 0):
+            return Signal("CLOSE", confidence=0.6,
+                          reason="squeeze re-engaged" if on else f"momentum turned down ({mom:.1f})",
+                          indicators=ind)
+        if side == "SHORT" and (on or mom > 0):
+            return Signal("CLOSE", confidence=0.6,
+                          reason="squeeze re-engaged" if on else f"momentum turned up ({mom:.1f})",
+                          indicators=ind)
+        # Symmetric: trade the release in the direction of momentum.
         if position is None and released and mom > 0:
             return Signal("LONG", confidence=0.6, reason=f"squeeze release up (mom {mom:.1f})",
                           indicators=ind)
-        if is_long and (on or mom < 0):
-            return Signal("CLOSE", confidence=0.6,
-                          reason="squeeze re-engaged" if on else f"momentum turned down ({mom:.1f})",
+        if position is None and released and mom < 0:
+            return Signal("SHORT", confidence=0.6, reason=f"squeeze release down (mom {mom:.1f})",
                           indicators=ind)
         return Signal("HOLD", reason=f"squeeze {'on' if on else 'off'}", indicators=ind)
