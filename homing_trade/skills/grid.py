@@ -21,10 +21,18 @@ class Grid(Strategy):
         price = candles[-1].close
         ind = {"ref": round(ref, 2), "lower": round(lower, 2), "upper": round(upper, 2),
                "price": round(price, 2)}
+        side = position.side if position is not None else None
+        # Exit at the opposite edge of the band — checked before entries (entries require flat).
+        if side == "LONG" and price >= upper:
+            return Signal(action="CLOSE", confidence=0.5,
+                          reason=f"price {price:.2f} at/above grid top {upper:.2f}", indicators=ind)
+        if side == "SHORT" and price <= lower:
+            return Signal(action="CLOSE", confidence=0.5,
+                          reason=f"price {price:.2f} at/below grid bottom {lower:.2f}", indicators=ind)
         if position is None and price <= lower:
             return Signal(action="LONG", confidence=0.5,
                           reason=f"price {price:.2f} at/below grid bottom {lower:.2f}", indicators=ind)
-        if position is not None and position.side == "LONG" and price >= upper:
-            return Signal(action="CLOSE", confidence=0.5,
+        if position is None and price >= upper:
+            return Signal(action="SHORT", confidence=0.5,
                           reason=f"price {price:.2f} at/above grid top {upper:.2f}", indicators=ind)
         return Signal(action="HOLD", reason="inside band", indicators=ind)

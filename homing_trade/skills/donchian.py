@@ -3,8 +3,10 @@ from homing_trade.models import Candle, Position, Signal
 
 
 class DonchianBreakout(Strategy):
-    """Donchian channel breakout. LONG when price breaks above the highest high of the prior
-    `period` candles; CLOSE when it breaks below the lowest low. A classic trend/breakout system."""
+    """Donchian channel breakout, symmetric on a futures instrument. LONG when price breaks above
+    the highest high of the prior `period` candles; SHORT when it breaks below the lowest low. The
+    engine closes-and-flips when a breakout opposes an open position, so a held long is reversed
+    into a short on a downside break (and vice-versa) — it trades both directions of the channel."""
 
     name = "donchian"
 
@@ -19,11 +21,10 @@ class DonchianBreakout(Strategy):
         lo = min(c.low for c in prior)
         price = candles[-1].close
         ind = {"upper": round(hi, 2), "lower": round(lo, 2), "price": round(price, 2)}
-        is_long = position is not None and position.side == "LONG"
-        if position is None and price > hi:
+        if price > hi:
             return Signal("LONG", confidence=0.6,
                           reason=f"breakout: price {price:.0f} > {self.period}-bar high {hi:.0f}", indicators=ind)
-        if is_long and price < lo:
-            return Signal("CLOSE", confidence=0.6,
+        if price < lo:
+            return Signal("SHORT", confidence=0.6,
                           reason=f"breakdown: price {price:.0f} < {self.period}-bar low {lo:.0f}", indicators=ind)
         return Signal("HOLD", reason="inside channel", indicators=ind)

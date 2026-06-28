@@ -35,3 +35,20 @@ def test_middle_holds():
     closes = [100.0] * 10
     sig = s.on_candle(candles_from(closes), None)
     assert sig.action == "HOLD"
+
+
+def test_short_at_top_of_band():
+    # Symmetric: fade the grid top with a SHORT from flat.
+    s = Grid(levels=5, band_pct=0.02, lookback=10)
+    closes = [100.0] * 9 + [103.0]  # above ref*(1+0.02)=102
+    sig = s.on_candle(candles_from(closes), None)
+    assert sig.action == "SHORT"
+
+
+def test_close_short_at_bottom_of_band():
+    s = Grid(levels=5, band_pct=0.02, lookback=10)
+    closes = [100.0] * 9 + [97.0]  # below ref*(1-0.02)=98
+    pos = Position(strategy="grid", side="SHORT", entry_price=102, size=1,
+                   leverage=10, margin=10, stop_price=104, opened_at=0)
+    sig = s.on_candle(candles_from(closes), pos)
+    assert sig.action == "CLOSE"

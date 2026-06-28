@@ -11,7 +11,7 @@ from homing_trade.repository import Repository
 from homing_trade.feed import get_candles
 from homing_trade.position_manager import PositionManager
 from homing_trade.skills.indicators import classify_regime
-from homing_trade.regime_filter import regime_weight, committee_threshold_scale
+from homing_trade.regime_filter import regime_weight, committee_threshold_scale, entry_allowed
 from homing_trade.skills.ma_trend import MaTrend
 from homing_trade.skills.rsi_revert import RsiRevert
 from homing_trade.skills.grid import Grid
@@ -89,6 +89,7 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
     else:
         weights = {}
     regime_on = getattr(cfg, "regime_filter_enabled", False)
+    align_on = getattr(cfg, "regime_align_enabled", False)
     for skill in skills:
         weight = weights.get(skill.name, 1.0)
         # Regime gate (Phase 7 #3): scale the allocator weight by the strategy's style fit to the
@@ -166,9 +167,15 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
         # 3. act on the decision, recording what was actually taken (and why, if blocked)
         taken_action, rejection = "HOLD", None
         if signal.action in ("LONG", "SHORT"):
+            # HARD regime-alignment gate (default off): a mechanical strategy may only OPEN a
+            # position whose direction fits the regime (trend-followers WITH a confirmed aligned
+            # trend; reverters only in chop). Exits/fl-closes are never gated.
+            aligned = (not align_on) or entry_allowed(skill.name, reg["regime"], signal.action)
             if position is None:
                 if paused:
                     taken_action, rejection = "PAUSED", "paused: new entries disabled"
+                elif not aligned:
+                    taken_action, rejection = "BLOCKED", f"regime: {signal.action} not aligned with {reg['regime']}"
                 else:
                     opened, reason = pm.open(skill, signal.action, candle, now_ms, weight,
                                              decision_id=decision_id, regime_at_entry=reg["regime"])
@@ -176,10 +183,11 @@ def process_tick(db, broker, skills, candles, cfg, guard=None, notifier=None, is
             elif position.side != signal.action:
                 # Reversal: the strategy's own thesis flipped to the opposite side. ALWAYS close the
                 # current position (else a trend strategy with no CLOSE signal rides it to the stop).
-                # Then, if flips are enabled and entries aren't paused, open the opposite side so the
-                # strategy can actually trade the new direction (e.g. short a confirmed downtrend).
+                # Then, if flips are enabled, entries aren't paused, AND the new side fits the regime,
+                # open the opposite side so the strategy can trade the new direction (e.g. short a
+                # confirmed downtrend). A misaligned flip still closes — it just doesn't re-open.
                 pm.close(skill, position, candle.close, candle, now_ms, exit_reason="reversal")
-                if cfg.reversal_flip_enabled and not paused:
+                if cfg.reversal_flip_enabled and not paused and aligned:
                     opened, reason = pm.open(skill, signal.action, candle, now_ms, weight,
                                              decision_id=decision_id, regime_at_entry=reg["regime"])
                     taken_action, rejection = (signal.action, None) if opened else ("CLOSE", reason)

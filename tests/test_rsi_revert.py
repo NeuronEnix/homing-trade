@@ -30,8 +30,18 @@ def test_overbought_closes_long():
     assert sig.action == "CLOSE"
 
 
-def test_rising_no_position_holds():
+def test_overbought_from_flat_opens_short():
+    # Symmetric mean-reversion: fade an overbought extreme with a SHORT (was HOLD = long-only).
     s = RsiRevert(period=14)
-    closes = [float(x) for x in range(1, 32)]
+    closes = [float(x) for x in range(1, 32)]  # strictly rising -> RSI very high
     sig = s.on_candle(candles_from(closes), None)
-    assert sig.action == "HOLD"
+    assert sig.action == "SHORT"
+
+
+def test_oversold_closes_short():
+    s = RsiRevert(period=14)
+    closes = [float(x) for x in range(40, 9, -1)]  # strictly falling -> RSI very low
+    pos = Position(strategy="rsi_revert", side="SHORT", entry_price=30, size=1,
+                   leverage=10, margin=3, stop_price=31, opened_at=0)
+    sig = s.on_candle(candles_from(closes), pos)
+    assert sig.action == "CLOSE"

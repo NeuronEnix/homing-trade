@@ -31,8 +31,13 @@ class Config:
     # Closing-on-reversal is unconditional (a correctness fix); the flip is the directional bet.
     reversal_flip_enabled: bool = True
     db_path: str = "data/paper_trading.db"
+    # Live tournament roster. Kept regime-balanced (2 trend-followers + 2 mean-reverters) so the
+    # regime-align gate always has an aligned strategy for whatever the tape is doing. donchian
+    # (no edge in any window — naked breakouts whipsaw here) and grid (never fires under the chop
+    # gate) were demoted back to candidates after a full-year backtest; they can re-earn a slot via
+    # the out-of-sample walk-forward promotion track.
     enabled_skills: list[str] = field(
-        default_factory=lambda: ["ma_trend", "rsi_revert", "grid", "macd", "bollinger", "donchian"]
+        default_factory=lambda: ["ma_trend", "rsi_revert", "macd", "bollinger"]
     )
     agent_mode: str = "heuristic"           # "heuristic" | "llm"
     llm_model: str = "claude-opus-4-8"
@@ -97,6 +102,14 @@ class Config:
     regime_filter_enabled: bool = False
     regime_unfavored_weight: float = 0.5          # allocator weight x this when style mismatches regime
     regime_committee_threshold_scale: float = 1.5  # committee threshold x this in non-trending regimes
+    # HARD regime-alignment entry gate (stronger than the soft weight above). When on, a mechanical
+    # strategy may only OPEN a position whose direction fits the current regime: trend-followers only
+    # WITH a confirmed aligned trend (LONG/trend_up, SHORT/trend_down), mean-reverters only in chop.
+    # This is what makes symmetric shorting pay (trade confirmed downtrends, not chop whipsaw). Exits
+    # and stops are never gated. Default OFF to match the other gates (tests opt in explicitly); the
+    # live bot turns it ON via REGIME_ALIGN_IS_ENABLED=true. A full-year backtest with it on turned
+    # the portfolio from -10% to +9% — it is the single biggest lever in this codebase.
+    regime_align_enabled: bool = False
     # Phase 7 #6 — profit-mirage trust cutoff (ISO UTC). Backtests are trusted only on post-cutoff,
     # walk-forward data: an LLM strategy could lean on outcomes it memorized before its knowledge
     # cutoff. Default = Opus knowledge cutoff; "" disables the constraint.
@@ -227,6 +240,7 @@ def from_env(base=None, *, dotenv_path=".env"):
         # operator switch — wiring them here so they can be turned on from .env without a code edit.
         reversal_flip_enabled=_b("REVERSAL_FLIP_IS_ENABLED", cfg.reversal_flip_enabled),
         regime_filter_enabled=_b("REGIME_FILTER_IS_ENABLED", cfg.regime_filter_enabled),
+        regime_align_enabled=_b("REGIME_ALIGN_IS_ENABLED", cfg.regime_align_enabled),
         regime_unfavored_weight=_f("REGIME_UNFAVORED_WEIGHT", cfg.regime_unfavored_weight),
         regime_committee_threshold_scale=_f("REGIME_COMMITTEE_THRESHOLD_SCALE",
                                             cfg.regime_committee_threshold_scale),

@@ -52,3 +52,25 @@ def committee_threshold_scale(regime, *, trending=1.0, non_trending=1.5):
     """Multiplier on the committee's consensus threshold: `trending` in a clear trend (act on
     conviction), `non_trending` otherwise (demand a higher bar where consensus whipsaws)."""
     return trending if regime in _TRENDING else non_trending
+
+
+def entry_allowed(name, regime, side):
+    """HARD entry gate (stronger than regime_weight's soft sizing tilt): may strategy `name` OPEN a
+    `side` ('LONG'/'SHORT') position under `regime`?
+
+      * TREND style  -> only WITH a confirmed, direction-aligned trend: LONG in trend_up, SHORT in
+        trend_down. Blocks the chop/transition/unknown whipsaw that is the trend-followers' whole
+        loss (and blocks counter-trend entries outright).
+      * REVERT style -> only in 'chop', where mean-reversion has an edge; a reverter that fades an
+        extreme inside a strong trend just gets run over.
+      * NEUTRAL style (AI traders, committee, anything unmapped) -> never gated; they own their own
+        directional logic.
+
+    Returns True when the open is permitted. Pure + side-effect free, so it unit-tests in isolation
+    and the engine can call it on both fresh entries and reversal-flips."""
+    style = strategy_style(name)
+    if style == NEUTRAL:
+        return True
+    if style == TREND:
+        return (regime == "trend_up" and side == "LONG") or (regime == "trend_down" and side == "SHORT")
+    return regime == "chop"   # REVERT: range-bound only, either side

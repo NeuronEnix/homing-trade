@@ -61,9 +61,11 @@ def test_donchian_breakout_long():
     assert sig.action == "LONG"
 
 
-def test_donchian_breakdown_close():
+def test_donchian_breakdown_reverses_to_short():
+    # Symmetric futures contract: a downside break while long emits SHORT so the engine
+    # closes the long and flips short (was long-only CLOSE before the long-bias fix).
     sig = DonchianBreakout(period=20).on_candle(cf([101.0] * 20 + [95.0]), long_pos("donchian"))
-    assert sig.action == "CLOSE"
+    assert sig.action == "SHORT"
 
 
 def test_donchian_warmup_holds():

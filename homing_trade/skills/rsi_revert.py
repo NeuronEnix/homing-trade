@@ -18,10 +18,19 @@ class RsiRevert(Strategy):
         if value is None:
             return Signal(action="HOLD", reason="warming up")
         ind = {"rsi": round(value, 2)}
+        side = position.side if position is not None else None
+        # Exit (revert toward neutral) — check before entries; entries require a flat book.
+        if side == "LONG" and value > self.overbought:
+            return Signal(action="CLOSE", confidence=0.6,
+                          reason=f"RSI {value:.1f} > {self.overbought} (overbought)", indicators=ind)
+        if side == "SHORT" and value < self.oversold:
+            return Signal(action="CLOSE", confidence=0.6,
+                          reason=f"RSI {value:.1f} < {self.oversold} (oversold)", indicators=ind)
+        # Entries from flat: fade the extreme on either side (symmetric mean-reversion).
         if position is None and value < self.oversold:
             return Signal(action="LONG", confidence=0.6,
                           reason=f"RSI {value:.1f} < {self.oversold} (oversold)", indicators=ind)
-        if position is not None and position.side == "LONG" and value > self.overbought:
-            return Signal(action="CLOSE", confidence=0.6,
+        if position is None and value > self.overbought:
+            return Signal(action="SHORT", confidence=0.6,
                           reason=f"RSI {value:.1f} > {self.overbought} (overbought)", indicators=ind)
         return Signal(action="HOLD", reason="no extreme", indicators=ind)
